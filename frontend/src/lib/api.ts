@@ -47,6 +47,18 @@ export type DeckMeta = {
 
 export type Deck = DeckMeta & { markdown: string };
 
+export type RevisionMeta = {
+	id: string;
+	createdAt: string;
+	sizeBytes: number;
+};
+
+export type Revision = {
+	id: string;
+	createdAt: string;
+	markdown: string;
+};
+
 export const api = {
 	instance: () => request<Instance>('/api/instance'),
 	me: () => request<User>('/api/auth/me'),
@@ -55,11 +67,18 @@ export const api = {
 		create: (body: { title?: string; markdown?: string } = {}) =>
 			request<Deck>('/api/decks', { method: 'POST', body: JSON.stringify(body) }),
 		get: (id: string) => request<Deck>(`/api/decks/${id}`),
-		update: (id: string, body: { title?: string; markdown?: string }) =>
+		update: (id: string, body: { title?: string; markdown?: string; baseUpdatedAt?: string }) =>
 			request<Deck>(`/api/decks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 		remove: (id: string) => request<void>(`/api/decks/${id}`, { method: 'DELETE' }),
 		duplicate: (id: string) => request<Deck>(`/api/decks/${id}/duplicate`, { method: 'POST' }),
 		exportUrl: (id: string) => `/api/decks/${id}/export`
+	},
+	revisions: {
+		list: (deckId: string) => request<RevisionMeta[]>(`/api/decks/${deckId}/revisions`),
+		get: (deckId: string, revId: string) =>
+			request<Revision>(`/api/decks/${deckId}/revisions/${revId}`),
+		restore: (deckId: string, revId: string) =>
+			request<Deck>(`/api/decks/${deckId}/revisions/${revId}/restore`, { method: 'POST' })
 	},
 	register: (username: string, password: string) =>
 		request<User>('/api/auth/register', {

@@ -3,7 +3,7 @@
 > Read this file FIRST at the start of every session. The Resume Pointer below is the single next action.
 
 ## ▶ Resume Pointer
-Cowork: audit BRIEF-0002 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0003 (editor + Marp live preview + autosave + revisions).
+Cowork: audit BRIEF-0003 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0004 (slide thumbnail rail + drag & drop reorder + asset upload).
 
 ---
 
@@ -30,7 +30,8 @@ Cowork: audit BRIEF-0002 result (user returns with "เสร็จแล้ว/
 | `ลุย BRIEF-0000` | infra & scaffolding | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0001` | auth & users | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0002` | deck CRUD + dashboard | **done** (2026-07-21, pr-review PASS) |
-| BRIEF-0003…0009 | see ARCHITECTURE §8 roadmap | queued |
+| `ลุย BRIEF-0003` | editor + live preview + autosave + revisions | **done** (2026-07-21, pr-review PASS) |
+| BRIEF-0004…0010 | see ARCHITECTURE §8 roadmap | queued |
 
 ## 5. Progress log
 ### 2026-07-21
@@ -44,6 +45,9 @@ Cowork: audit BRIEF-0002 result (user returns with "เสร็จแล้ว/
 - Deferred to hardening brief (recorded in BRIEF-0001): rate limiting/lockout, register-path username enumeration.
 - **BRIEF-0002 implemented** (same session): migration 0003 decks (+ `foreign_keys(true)` now enforced); AuthUser extractor; CRUD list/create/get/PATCH/soft-delete/duplicate/export with owner-scoping-as-404 on reads AND writes; default Marp template; export Content-Disposition (remove-filter ASCII + RFC5987 filename*); fixed-width `now_rfc3339` (lexicographic ordering); DefaultBodyLimit 4MB; dashboard (grid, new/import/rename/duplicate/export/delete, empty state) + read-only deck page. Two review rounds again (brief: 9 findings pre-code; code: 5 nits — all fixed incl. surrogate-pair-safe filename truncation and 401→/login on cached-layout page loads). Evidence: 37 tests passed (9 unit + 11 auth + 14 decks + 3 health), svelte-check 0/0, compose healthy, curl CRUD flow verified, browser flow desktop+375px incl. import-via-DataTransfer (title from filename), teardown clean earlier this session.
 - Incident note: a tool-call edit containing backslash-u unicode escapes got decoded into literal control bytes inside +page.svelte (ripgrep then treated the file as binary) - rewrote the file cleanly; lesson: avoid backslash-u escape sequences in tool-call payloads, prefer codePoint filters in JS.
+- **BRIEF-0003 implemented** (same session): migration 0004 revisions; transactional PATCH snapshot (BEGIN IMMEDIATE via sqlx begin_with → auto-rollback on drop, 300s throttle, stale-baseUpdatedAt forces snapshot for the clobber case, retention cap 50 with rowid tie-break); restore/list/get routes (owner+deck scoped, cross-deck revId 404); CSP header (blocks external egress from decks); CodeMirror 6 + marp-core client-side preview in Shadow DOM via **constructable stylesheets** (CSS never HTML-parsed → style-directive XSS breakout impossible), deckoala theme (#F8F8FF/#0B1215 + Noto Sans Thai), KaTeX with locally-bundled fonts (katexFontPath=/katex-fonts/ + document-level katex.min.css import — zero external requests); autosave state machine (debounce, retry, epoch guards, beforeNavigate flush for SPA nav, in-flight-save awaited before restore); revisions panel with view/restore. Two review rounds (brief: 8 findings folded pre-code incl. BEGIN IMMEDIATE, stale-base snapshot, CSP, sizeBytes-as-blob, cross-deck test; code: 6 findings fixed incl. the blocker SPA-nav data loss and the </style> XSS breakout → constructable stylesheets). Evidence: 49 tests passed (Docker verify), svelte-check 0/0, compose healthy, browser: live Thai+KaTeX preview / autosave persists across reload / revision view+restore / CSP blocks external img / XSS probe did not fire / desktop split + mobile tabs.
+- launch.json written (.claude/launch.json: compose 8321, vite 5173, cargo 8080) — none started per user (compose stack already up).
+- Deviation log (BRIEF-0003): none — KaTeX stayed on the primary (local-font) path; MathJax fallback not needed.
 
 ## 6. Open questions / blockers
 - Q5 fonts: instance-level (default, `[STD]`) — revisit at BRIEF-0007 if the user objects.

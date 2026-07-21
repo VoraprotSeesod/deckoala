@@ -1,0 +1,23 @@
+{
+	"version": "0.0.1",
+	"configurations": [
+		{
+			"name": "deckoala (docker compose)",
+			"runtimeExecutable": "docker",
+			"runtimeArgs": ["compose", "-p", "deckoala", "up"],
+			"port": 8321
+		},
+		{
+			"name": "frontend (vite dev)",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+			"port": 5173
+		},
+		{
+			"name": "backend (cargo run)",
+			"runtimeExecutable": "cargo",
+			"runtimeArgs": ["run", "--manifest-path", "backend/Cargo.toml"],
+			"port": 8080
+		}
+	]
+}

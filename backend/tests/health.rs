@@ -37,6 +37,20 @@ async fn unknown_api_route_returns_json_404_not_spa() {
 }
 
 #[tokio::test]
+async fn responses_carry_content_security_policy() {
+    let app = test_app("csp").await;
+    let response = send(&app, "GET", "/api/health", None, None, None).await;
+    let csp = response
+        .headers
+        .get(axum::http::header::CONTENT_SECURITY_POLICY)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    assert!(csp.contains("default-src 'self'"), "CSP must be set: {csp}");
+    assert!(csp.contains("img-src 'self' data: blob:"));
+    assert!(csp.contains("connect-src 'self'"));
+}
+
+#[tokio::test]
 async fn instance_reports_signup_and_user_state() {
     let app = test_app("instance").await;
     let before = send(&app, "GET", "/api/instance", None, None, None).await;

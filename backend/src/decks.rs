@@ -256,9 +256,14 @@ pub async fn get_one(
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateDeck {
     title: Option<String>,
     markdown: Option<String>,
+    /// The `updatedAt` the client's edit was based on. Last-write-wins still
+    /// applies, but a mismatch with changed markdown forces a snapshot even
+    /// inside the throttle window — that is exactly the clobber case.
+    base_updated_at: Option<String>,
 }
 
 pub async fn update(
@@ -287,25 +292,339 @@ pub async fn update(
     }
 
     let now = now_rfc3339();
-    let updated = sqlx::query(
+    // BEGIN IMMEDIATE via sqlx's Transaction API: takes the write lock up
+    // front so concurrent autosaves serialize (deferred transactions would
+    // hit SQLITE_BUSY_SNAPSHOT or double-snapshot), AND auto-rollbacks on
+    // drop — a client disconnect cancelling this future can never leak an
+    // open transaction back into the pool (BRIEF-0003).
+    let mut tx = match state.db.begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    };
+    let outcome = update_in_tx(
+        &mut tx,
+        &state,
+        &id,
+        &user_id,
+        &title,
+        &body.markdown,
+        body.base_updated_at.as_deref(),
+        &now,
+    )
+    .await;
+    finish_deck_tx(tx, outcome).await
+}
+
+/// Commit + 200 on success, rollback + 404/500 otherwise.
+async fn finish_deck_tx(
+    tx: sqlx::Transaction<'_, sqlx::Sqlite>,
+    outcome: Result<Option<DeckRow>, sqlx::Error>,
+) -> Response {
+    match outcome {
+        Ok(Some(row)) => {
+            if tx.commit().await.is_err() {
+                return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error");
+            }
+            Json(DeckFull::from(row)).into_response()
+        }
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            not_found()
+        }
+        Err(_) => {
+            let _ = tx.rollback().await;
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error")
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn update_in_tx(
+    conn: &mut sqlx::SqliteConnection,
+    state: &AppState,
+    id: &str,
+    user_id: &str,
+    title: &Option<String>,
+    markdown: &Option<String>,
+    base_updated_at: Option<&str>,
+    now: &str,
+) -> Result<Option<DeckRow>, sqlx::Error> {
+    let current: Option<DeckRow> = sqlx::query_as(
+        "SELECT id, title, markdown, theme, created_at, updated_at FROM decks \
+         WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some(current) = current else {
+        return Ok(None);
+    };
+
+    // Snapshot policy (BRIEF-0003): before applying a real markdown change,
+    // snapshot the PRE-update content when the throttle window has elapsed
+    // OR the client edited from a stale baseline (the clobber case).
+    let markdown_changed = markdown
+        .as_ref()
+        .is_some_and(|new| *new != current.markdown);
+    let stale_base = base_updated_at.is_some_and(|base| base != current.updated_at);
+    if markdown_changed
+        && (stale_base
+            || latest_revision_older_than(&mut *conn, id, state.revision_min_secs).await?)
+    {
+        insert_revision(&mut *conn, id, &current.markdown, now).await?;
+    }
+
+    let done = sqlx::query(
         "UPDATE decks SET title = COALESCE(?1, title), markdown = COALESCE(?2, markdown), \
          updated_at = ?3 WHERE id = ?4 AND owner_id = ?5 AND deleted_at IS NULL",
     )
-    .bind(&title)
-    .bind(&body.markdown)
-    .bind(&now)
+    .bind(title)
+    .bind(markdown)
+    .bind(now)
+    .bind(id)
+    .bind(user_id)
+    .execute(&mut *conn)
+    .await?;
+    if done.rows_affected() == 0 {
+        return Ok(None); // tombstoned mid-flight → rollback, no stray snapshot
+    }
+
+    sqlx::query_as(
+        "SELECT id, title, markdown, theme, created_at, updated_at FROM decks \
+         WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(&mut *conn)
+    .await
+}
+
+const MAX_REVISIONS_PER_DECK: i64 = 50;
+
+/// True when the deck's newest revision is older than `min_secs` (or there
+/// is none). Unparsable timestamps count as old — snapshotting too often is
+/// safer than never.
+async fn latest_revision_older_than(
+    tx: &mut sqlx::SqliteConnection,
+    deck_id: &str,
+    min_secs: i64,
+) -> Result<bool, sqlx::Error> {
+    let latest: Option<String> = sqlx::query_scalar(
+        "SELECT created_at FROM revisions WHERE deck_id = ?1 \
+         ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    )
+    .bind(deck_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    Ok(match latest {
+        None => true,
+        Some(ts) => {
+            match time::OffsetDateTime::parse(&ts, &time::format_description::well_known::Rfc3339) {
+                Ok(parsed) => {
+                    time::OffsetDateTime::now_utc() - parsed >= time::Duration::seconds(min_secs)
+                }
+                Err(_) => true,
+            }
+        }
+    })
+}
+
+/// Insert a snapshot and prune to the newest MAX_REVISIONS_PER_DECK rows.
+async fn insert_revision(
+    tx: &mut sqlx::SqliteConnection,
+    deck_id: &str,
+    markdown: &str,
+    now: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO revisions (id, deck_id, markdown, created_at) VALUES (?1, ?2, ?3, ?4)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(deck_id)
+    .bind(markdown)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM revisions WHERE deck_id = ?1 AND id NOT IN (\
+         SELECT id FROM revisions WHERE deck_id = ?1 \
+         ORDER BY created_at DESC, rowid DESC LIMIT ?2)",
+    )
+    .bind(deck_id)
+    .bind(MAX_REVISIONS_PER_DECK)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct RevisionMetaRow {
+    id: String,
+    created_at: String,
+    size_bytes: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionMeta {
+    id: String,
+    created_at: String,
+    size_bytes: i64,
+}
+
+pub async fn revisions_list(
+    State(state): State<AppState>,
+    AuthUser(user_id): AuthUser,
+    Path(id): Path<String>,
+) -> Response {
+    match fetch_deck(&state, &id, &user_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return not_found(),
+        Err(response) => return response,
+    }
+    match sqlx::query_as::<_, RevisionMetaRow>(
+        "SELECT id, created_at, LENGTH(CAST(markdown AS BLOB)) AS size_bytes \
+         FROM revisions WHERE deck_id = ?1 ORDER BY created_at DESC, rowid DESC",
+    )
     .bind(&id)
-    .bind(&user_id)
-    .execute(&state.db)
-    .await;
-    match updated {
-        Ok(done) if done.rows_affected() == 0 => not_found(),
-        Ok(_) => match fetch_deck(&state, &id, &user_id).await {
-            Ok(Some(row)) => Json(DeckFull::from(row)).into_response(),
-            _ => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
-        },
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => Json(
+            rows.into_iter()
+                .map(|row| RevisionMeta {
+                    id: row.id,
+                    created_at: row.created_at,
+                    size_bytes: row.size_bytes,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct RevisionRow {
+    id: String,
+    markdown: String,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionFull {
+    id: String,
+    created_at: String,
+    markdown: String,
+}
+
+async fn fetch_revision(
+    db: &sqlx::SqlitePool,
+    deck_id: &str,
+    rev_id: &str,
+) -> Result<Option<RevisionRow>, sqlx::Error> {
+    sqlx::query_as::<_, RevisionRow>(
+        "SELECT id, markdown, created_at FROM revisions WHERE id = ?1 AND deck_id = ?2",
+    )
+    .bind(rev_id)
+    .bind(deck_id)
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn revision_get(
+    State(state): State<AppState>,
+    AuthUser(user_id): AuthUser,
+    Path((id, rev_id)): Path<(String, String)>,
+) -> Response {
+    match fetch_deck(&state, &id, &user_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return not_found(),
+        Err(response) => return response,
+    }
+    match fetch_revision(&state.db, &id, &rev_id).await {
+        Ok(Some(row)) => Json(RevisionFull {
+            id: row.id,
+            created_at: row.created_at,
+            markdown: row.markdown,
+        })
+        .into_response(),
+        Ok(None) => not_found(),
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    }
+}
+
+pub async fn revision_restore(
+    State(state): State<AppState>,
+    AuthUser(user_id): AuthUser,
+    Path((id, rev_id)): Path<(String, String)>,
+) -> Response {
+    let now = now_rfc3339();
+    let mut tx = match state.db.begin_with("BEGIN IMMEDIATE").await {
+        Ok(tx) => tx,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    };
+    let outcome = restore_in_tx(&mut tx, &id, &user_id, &rev_id, &now).await;
+    finish_deck_tx(tx, outcome).await
+}
+
+async fn restore_in_tx(
+    conn: &mut sqlx::SqliteConnection,
+    id: &str,
+    user_id: &str,
+    rev_id: &str,
+    now: &str,
+) -> Result<Option<DeckRow>, sqlx::Error> {
+    let current: Option<DeckRow> = sqlx::query_as(
+        "SELECT id, title, markdown, theme, created_at, updated_at FROM decks \
+         WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some(current) = current else {
+        return Ok(None);
+    };
+    // deck_id bound alongside the revision id — a revision from another deck
+    // must never resolve (BRIEF-0003 cross-deck rule).
+    let revision: Option<RevisionRow> = sqlx::query_as(
+        "SELECT id, markdown, created_at FROM revisions WHERE id = ?1 AND deck_id = ?2",
+    )
+    .bind(rev_id)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some(revision) = revision else {
+        return Ok(None);
+    };
+
+    // Restore is explicit — always snapshot the current content first.
+    insert_revision(&mut *conn, id, &current.markdown, now).await?;
+    let done = sqlx::query(
+        "UPDATE decks SET markdown = ?1, updated_at = ?2 \
+         WHERE id = ?3 AND owner_id = ?4 AND deleted_at IS NULL",
+    )
+    .bind(&revision.markdown)
+    .bind(now)
+    .bind(id)
+    .bind(user_id)
+    .execute(&mut *conn)
+    .await?;
+    if done.rows_affected() == 0 {
+        return Ok(None); // tombstoned mid-flight → rollback incl. the snapshot
+    }
+
+    sqlx::query_as(
+        "SELECT id, title, markdown, theme, created_at, updated_at FROM decks \
+         WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(&mut *conn)
+    .await
 }
 
 pub async fn remove(

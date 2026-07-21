@@ -17,6 +17,7 @@ async fn main() {
         allow_signup: config.allow_signup,
         allowed_origin: config.allowed_origin.clone(),
         secure_cookie: config.secure_cookie,
+        revision_min_secs: 300,
     };
     let router = app(state, &config.static_dir)
         .await

@@ -11,8 +11,13 @@ use deckoala_server::{app, init_db, AppState};
 pub const TEST_HOST: &str = "localhost:8080";
 
 /// Fresh app + its pool, backed by a real migrated SQLite database in a
-/// unique temp dir.
-pub async fn test_app_with_db(name: &str, allow_signup: bool) -> (Router, sqlx::SqlitePool) {
+/// unique temp dir. `revision_min_secs` controls the snapshot throttle
+/// (production value is 300; pass 0 to snapshot on every markdown change).
+pub async fn test_app_full(
+    name: &str,
+    allow_signup: bool,
+    revision_min_secs: i64,
+) -> (Router, sqlx::SqlitePool) {
     let data_dir =
         std::env::temp_dir().join(format!("deckoala-test-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data_dir);
@@ -23,12 +28,17 @@ pub async fn test_app_with_db(name: &str, allow_signup: bool) -> (Router, sqlx::
             allow_signup,
             allowed_origin: None,
             secure_cookie: false,
+            revision_min_secs,
         },
         std::path::Path::new("nonexistent-static"),
     )
     .await
     .expect("app build failed");
     (router, db)
+}
+
+pub async fn test_app_with_db(name: &str, allow_signup: bool) -> (Router, sqlx::SqlitePool) {
+    test_app_full(name, allow_signup, 300).await
 }
 
 pub async fn test_app_with(name: &str, allow_signup: bool) -> Router {

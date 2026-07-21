@@ -4,6 +4,7 @@ pub mod decks;
 use std::path::{Path, PathBuf};
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::HeaderValue;
 use axum::{
     extract::{Request, State},
     http::{header, Method, StatusCode},
@@ -16,6 +17,7 @@ use serde::Serialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_sessions::{cookie::SameSite, ExpiredDeletion, Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
 
@@ -27,6 +29,9 @@ pub struct AppState {
     /// (covers reverse proxies that rewrite the Host header).
     pub allowed_origin: Option<String>,
     pub secure_cookie: bool,
+    /// Minimum seconds between automatic revision snapshots on markdown
+    /// PATCHes (BRIEF-0003 policy; production uses 300, tests may use 0).
+    pub revision_min_secs: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +113,9 @@ pub async fn init_db(data_dir: &Path) -> Result<SqlitePool, Box<dyn std::error::
         .filename(data_dir.join("deckoala.db"))
         .create_if_missing(true)
         .foreign_keys(true)
+        // BEGIN IMMEDIATE under concurrent autosaves waits instead of
+        // failing instantly (BRIEF-0003 snapshot transactions).
+        .busy_timeout(std::time::Duration::from_secs(5))
         .journal_mode(SqliteJournalMode::Wal);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -261,6 +269,12 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         )
         .route("/decks/{id}/duplicate", post(decks::duplicate))
         .route("/decks/{id}/export", get(decks::export))
+        .route("/decks/{id}/revisions", get(decks::revisions_list))
+        .route("/decks/{id}/revisions/{rev_id}", get(decks::revision_get))
+        .route(
+            "/decks/{id}/revisions/{rev_id}/restore",
+            post(decks::revision_restore),
+        )
         .fallback(api_not_found)
         // JSON escaping can double a 1 MB markdown payload; the app-level
         // 1 MB cap stays authoritative (BRIEF-0002).
@@ -273,7 +287,23 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .with_state(state);
 
     let spa = ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
-    Ok(Router::new().nest("/api", api).fallback_service(spa))
+    // CSP: html:false already blocks scripts in markdown, but only CSP stops
+    // network egress (external images / CSS url() in user decks) — the
+    // zero-external-request invariant enforced by the browser (BRIEF-0003).
+    // script-src keeps 'unsafe-inline' for SvelteKit's inline bootstrap.
+    let csp = SetResponseHeaderLayer::overriding(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; \
+             style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; \
+             font-src 'self' data:; connect-src 'self'; object-src 'none'; \
+             base-uri 'self'; frame-ancestors 'self'",
+        ),
+    );
+    Ok(Router::new()
+        .nest("/api", api)
+        .fallback_service(spa)
+        .layer(csp))
 }
 
 /// Exit code for the Docker HEALTHCHECK: GET /api/health on the local port,
