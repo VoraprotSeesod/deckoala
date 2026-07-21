@@ -1,0 +1,22 @@
+:root {
+	--dk-bg: #f8f8ff;
+	--dk-ink: #0b1215;
+}
+
+html {
+	box-sizing: border-box;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: inherit;
+}
+
+body {
+	margin: 0;
+	background: var(--dk-bg);
+	color: var(--dk-ink);
+	font-family: 'Inter', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
+	-webkit-font-smoothing: antialiased;
+}

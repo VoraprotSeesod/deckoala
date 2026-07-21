@@ -1,0 +1,5 @@
+[toolchain]
+# Exact pin, matching the Dockerfile's rust:1.88.0-bookworm so rustup inside
+# the build container uses the preinstalled toolchain without re-downloading.
+channel = "1.88.0"
+components = ["rustfmt", "clippy"]

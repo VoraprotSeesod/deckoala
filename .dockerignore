@@ -1,0 +1,11 @@
+.git
+.env
+data
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build
+backend/target
+docs
+decisions
+*.md
+!frontend/**/*.md

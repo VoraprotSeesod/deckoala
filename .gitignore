@@ -1,0 +1,16 @@
+# local env
+.env
+
+# frontend
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+
+# backend
+backend/target/
+
+# local data
+data/
+*.db
+*.db-shm
+*.db-wal
