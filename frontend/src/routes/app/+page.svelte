@@ -85,6 +85,19 @@
 		}
 	}
 
+	let pdfBusyId = $state<string | null>(null);
+	async function exportPdf(deck: DeckMeta) {
+		pdfBusyId = deck.id;
+		errorMsg = '';
+		try {
+			await api.decks.downloadPdf(deck.id, deck.title);
+		} catch (e) {
+			fail(e);
+		} finally {
+			pdfBusyId = null;
+		}
+	}
+
 	async function remove(deck: DeckMeta) {
 		if (!confirm(`Delete "${deck.title}"?`)) return;
 		errorMsg = '';
@@ -133,9 +146,12 @@
 					<span class="meta">Updated {updatedLabel(deck.updatedAt)}</span>
 					<div class="row">
 						<a class="button" href="/present/{deck.id}">Present</a>
+						<button onclick={() => exportPdf(deck)} disabled={pdfBusyId === deck.id}>
+							{pdfBusyId === deck.id ? 'PDF…' : 'PDF'}
+						</button>
 						<button onclick={() => rename(deck)}>Rename</button>
 						<button onclick={() => duplicate(deck)}>Duplicate</button>
-						<a class="button" href={api.decks.exportUrl(deck.id)} download>Export</a>
+						<a class="button" href={api.decks.exportUrl(deck.id)} download>.md</a>
 						<button class="danger" onclick={() => remove(deck)}>Delete</button>
 					</div>
 				</li>

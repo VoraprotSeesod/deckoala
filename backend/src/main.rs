@@ -12,6 +12,8 @@ async fn main() {
     let db = init_db(&config.data_dir)
         .await
         .expect("failed to initialize database");
+    let mut print_secret = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut print_secret);
     let state = AppState {
         db,
         allow_signup: config.allow_signup,
@@ -19,6 +21,9 @@ async fn main() {
         secure_cookie: config.secure_cookie,
         revision_min_secs: 300,
         data_dir: config.data_dir.clone(),
+        print_secret,
+        local_addr: deckoala_server::loopback_addr(&config.bind),
+        export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
     };
     let router = app(state, &config.static_dir)
         .await

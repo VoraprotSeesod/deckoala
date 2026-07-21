@@ -162,9 +162,12 @@ async fn foreign_and_missing_serve_are_404() {
             .status,
         StatusCode::NOT_FOUND
     );
+    // Anonymous (no session, no print cookie) is unauthorized → 404, matching
+    // the stranger case (existence-hiding; BRIEF-0006 unified the serve auth to
+    // session-owner OR print-cookie, both denying with 404).
     assert_eq!(
         send(&app, "GET", &url, None, None, None).await.status,
-        StatusCode::UNAUTHORIZED
+        StatusCode::NOT_FOUND
     );
 
     // Unknown filename under the owner's deck → 404.

@@ -3,13 +3,16 @@
 use std::path::PathBuf;
 
 use axum::extract::{Multipart, Path, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
+use tower_sessions::Session;
 use uuid::Uuid;
 
+use crate::auth::SESSION_USER_KEY;
 use crate::decks::AuthUser;
+use crate::export::print_cookie_authorizes;
 use crate::{json_error, now_rfc3339, AppState};
 
 const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
@@ -28,10 +31,41 @@ async fn owner_owns_deck(state: &AppState, deck_id: &str, user_id: &str) -> Resu
     .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"))
 }
 
+/// A live (not soft-deleted) deck exists with this id — used for the print
+/// path where the token, not ownership, is the authorization.
+async fn deck_is_live(state: &AppState, deck_id: &str) -> Result<bool, Response> {
+    sqlx::query_scalar::<_, i64>("SELECT 1 FROM decks WHERE id = ?1 AND deleted_at IS NULL")
+        .bind(deck_id)
+        .fetch_optional(&state.db)
+        .await
+        .map(|row| row.is_some())
+        .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"))
+}
+
+/// Serve authorization: the session owner, OR a valid print cookie for this
+/// deck (so Chromium can load images during PDF export).
+async fn authorize_serve(
+    state: &AppState,
+    session: &Session,
+    headers: &HeaderMap,
+    deck_id: &str,
+) -> Result<bool, Response> {
+    let user_id: Option<String> = session.get(SESSION_USER_KEY).await.unwrap_or(None);
+    if let Some(user_id) = user_id {
+        if owner_owns_deck(state, deck_id, &user_id).await? {
+            return Ok(true);
+        }
+    }
+    if print_cookie_authorizes(&state.print_secret, headers, deck_id) {
+        return deck_is_live(state, deck_id).await;
+    }
+    Ok(false)
+}
+
 /// A single path segment is safe: non-empty, only `[A-Za-z0-9._-]`, and not a
 /// traversal token. The real traversal defense is the DB row lookup; this is
 /// defense-in-depth so a crafted name never reaches the filesystem.
-fn safe_segment(segment: &str) -> bool {
+pub(crate) fn safe_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment != "."
         && segment != ".."
@@ -174,13 +208,16 @@ pub async fn upload(
 
 pub async fn serve(
     State(state): State<AppState>,
-    AuthUser(user_id): AuthUser,
+    session: Session,
+    headers: HeaderMap,
     Path((deck_id, filename)): Path<(String, String)>,
 ) -> Response {
     if !safe_segment(&deck_id) || !safe_segment(&filename) {
         return not_found();
     }
-    match owner_owns_deck(&state, &deck_id, &user_id).await {
+    // Authorized by the session owner OR a valid print cookie for this deck
+    // (the latter lets in-container Chromium load images for PDF export).
+    match authorize_serve(&state, &session, &headers, &deck_id).await {
         Ok(true) => {}
         Ok(false) => return not_found(),
         Err(response) => return response,

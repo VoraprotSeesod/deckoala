@@ -82,9 +82,22 @@
 	let dropActive = $state(false);
 
 	let errorMsg = $state('');
+	let pdfBusy = $state(false);
 	let editorContainer = $state<HTMLDivElement | null>(null);
 	let view: EditorView | null = null;
 	let applyingRemote = false;
+
+	async function exportPdf() {
+		pdfBusy = true;
+		errorMsg = '';
+		try {
+			await api.decks.downloadPdf(deckId, title);
+		} catch (e) {
+			errorMsg = e instanceof ApiError ? e.message : 'PDF export failed.';
+		} finally {
+			pdfBusy = false;
+		}
+	}
 
 	const PREVIEW_CHROME_CSS = `
 		:host { display: block; }
@@ -512,6 +525,9 @@
 		</span>
 		<span class="slides">{slideCount} slide{slideCount === 1 ? '' : 's'}</span>
 		<a class="button" href="/present/{deckId}">Present</a>
+		<button class="button" onclick={exportPdf} disabled={pdfBusy}>
+			{pdfBusy ? 'Generating…' : 'PDF'}
+		</button>
 		<a class="button" href={api.decks.exportUrl(deckId)} download>Export .md</a>
 		<button class="button" class:active={panelOpen} onclick={togglePanel}>Revisions</button>
 	</div>

@@ -702,7 +702,7 @@ pub async fn export(
         Err(response) => return response,
     };
 
-    let disposition = content_disposition(&deck.title);
+    let disposition = crate::content_disposition(&deck.title, "md");
     let mut response = (StatusCode::OK, deck.markdown).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -714,64 +714,4 @@ pub async fn export(
             .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
     response
-}
-
-/// ASCII fallback + RFC 5987 `filename*` so non-Latin titles (e.g. Thai)
-/// survive. Chars outside the safe set are REMOVED (an all-Thai title falls
-/// back to "deck"), and both parts are built only from filtered/encoded
-/// bytes, so no header-injection path exists (quotes, CR/LF never emitted).
-fn content_disposition(title: &str) -> String {
-    let ascii: String = title
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
-        .collect();
-    let ascii = ascii.trim().trim_matches('.').to_owned();
-    let ascii = if ascii.is_empty() {
-        "deck".to_owned()
-    } else {
-        ascii
-    };
-    format!(
-        "attachment; filename=\"{ascii}.md\"; filename*=UTF-8''{}.md",
-        percent_encode(title)
-    )
-}
-
-fn percent_encode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() * 3);
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => out.push(byte as char),
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{content_disposition, percent_encode};
-
-    #[test]
-    fn disposition_is_header_safe_for_hostile_titles() {
-        let hostile = "evil\"\r\nSet-Cookie: x=y";
-        let disposition = content_disposition(hostile);
-        assert!(!disposition.contains('\r'));
-        assert!(!disposition.contains('\n'));
-        assert!(!disposition.contains("evil\""));
-        assert!(disposition.starts_with("attachment; filename=\"evil"));
-    }
-
-    #[test]
-    fn thai_title_survives_in_filename_star() {
-        let disposition = content_disposition("สไลด์ของฉัน");
-        assert!(disposition.contains("filename*=UTF-8''%E0%B8%AA"));
-        assert!(disposition.contains("filename=\"deck.md\""));
-    }
-
-    #[test]
-    fn percent_encoding_is_uppercase_hex() {
-        assert_eq!(percent_encode("a b"), "a%20b");
-        assert_eq!(percent_encode("ก"), "%E0%B8%81");
-    }
 }

@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod auth;
 pub mod decks;
+pub mod export;
 
 use std::path::{Path, PathBuf};
 
@@ -35,6 +36,13 @@ pub struct AppState {
     pub revision_min_secs: i64,
     /// Root of the `/data` volume; uploaded assets live under `<data_dir>/assets`.
     pub data_dir: PathBuf,
+    /// HMAC secret for stateless print tokens (random per process; BRIEF-0006).
+    pub print_secret: [u8; 32],
+    /// Loopback address headless Chromium dials for PDF export, e.g.
+    /// `127.0.0.1:8080` (host of DECKOALA_BIND swapped to loopback).
+    pub local_addr: String,
+    /// Bounds concurrent Chromium exports so a burst can't exhaust memory.
+    pub export_sem: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +64,13 @@ fn env_flag(name: &str, default: bool) -> bool {
             )
         })
         .unwrap_or(default)
+}
+
+/// Loopback dial address for the given bind: keep the port, force the host to
+/// 127.0.0.1 (so Chromium always reaches the local server, whatever the bind).
+pub fn loopback_addr(bind: &str) -> String {
+    let port = bind.rsplit(':').next().unwrap_or("8080");
+    format!("127.0.0.1:{port}")
 }
 
 /// Authority (host[:port]) of an http(s) URL, e.g. "https://a.example/x" → "a.example".
@@ -131,6 +146,39 @@ pub async fn init_db(data_dir: &Path) -> Result<SqlitePool, Box<dyn std::error::
 /// Standard JSON error body used across the API.
 pub fn json_error(status: StatusCode, message: &str) -> Response {
     (status, Json(serde_json::json!({ "error": message }))).into_response()
+}
+
+/// `Content-Disposition` for a download: ASCII fallback + RFC 5987 `filename*`
+/// so non-Latin titles (e.g. Thai) survive. Chars outside the safe set are
+/// REMOVED (an all-Thai title falls back to "deck"); both parts are built only
+/// from filtered/encoded bytes, so no header-injection path exists (quotes,
+/// CR/LF never emitted). `ext` is the file extension without the dot.
+pub fn content_disposition(title: &str, ext: &str) -> String {
+    let ascii: String = title
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
+        .collect();
+    let ascii = ascii.trim().trim_matches('.').to_owned();
+    let ascii = if ascii.is_empty() {
+        "deck".to_owned()
+    } else {
+        ascii
+    };
+    format!(
+        "attachment; filename=\"{ascii}.{ext}\"; filename*=UTF-8''{}.{ext}",
+        percent_encode(title)
+    )
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() * 3);
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => out.push(byte as char),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 #[derive(Serialize)]
@@ -285,6 +333,8 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
             "/decks/{id}/revisions/{rev_id}/restore",
             post(decks::revision_restore),
         )
+        .route("/decks/{id}/export/pdf", post(export::export_pdf))
+        .route("/print/{id}", get(export::print_data))
         .fallback(api_not_found)
         // JSON escaping can double a 1 MB markdown payload; the app-level
         // 1 MB cap stays authoritative (BRIEF-0002).
@@ -410,6 +460,19 @@ mod tests {
             "127.0.0.1:8080",
             Some("deckoala.dimenshade.com")
         ));
+    }
+
+    #[test]
+    fn disposition_is_header_safe_and_extensioned() {
+        let hostile = super::content_disposition("evil\"quote", "pdf");
+        assert!(!hostile.contains("evil\""));
+        assert!(hostile.starts_with("attachment; filename=\"evil"));
+        assert!(hostile.contains(".pdf\""));
+
+        let thai = super::content_disposition("สไลด์ของฉัน", "pdf");
+        assert!(thai.contains("filename=\"deck.pdf\""));
+        assert!(thai.contains("filename*=UTF-8''%E0%B8%AA"));
+        assert!(thai.contains(".pdf"));
     }
 
     #[test]

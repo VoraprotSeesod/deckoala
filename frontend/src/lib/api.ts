@@ -79,7 +79,33 @@ export const api = {
 			request<Deck>(`/api/decks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 		remove: (id: string) => request<void>(`/api/decks/${id}`, { method: 'DELETE' }),
 		duplicate: (id: string) => request<Deck>(`/api/decks/${id}/duplicate`, { method: 'POST' }),
-		exportUrl: (id: string) => `/api/decks/${id}/export`
+		exportUrl: (id: string) => `/api/decks/${id}/export`,
+		// Server generates the PDF (headless Chromium — slow); download the blob.
+		downloadPdf: async (id: string, fallbackTitle: string): Promise<void> => {
+			const res = await fetch(`/api/decks/${id}/export/pdf`, { method: 'POST' });
+			if (!res.ok) {
+				let message = res.statusText;
+				try {
+					const body = await res.json();
+					if (typeof body?.error === 'string') message = body.error;
+				} catch {
+					// keep statusText
+				}
+				throw new ApiError(res.status, message);
+			}
+			const blob = await res.blob();
+			const disposition = res.headers.get('content-disposition') ?? '';
+			const match = disposition.match(/filename="([^"]+)"/);
+			const filename = match ? match[1] : `${fallbackTitle || 'deck'}.pdf`;
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = filename;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			URL.revokeObjectURL(url);
+		}
 	},
 	revisions: {
 		list: (deckId: string) => request<RevisionMeta[]>(`/api/decks/${deckId}/revisions`),
