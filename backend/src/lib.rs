@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod auth;
 pub mod decks;
 
@@ -32,6 +33,8 @@ pub struct AppState {
     /// Minimum seconds between automatic revision snapshots on markdown
     /// PATCHes (BRIEF-0003 policy; production uses 300, tests may use 0).
     pub revision_min_secs: i64,
+    /// Root of the `/data` volume; uploaded assets live under `<data_dir>/assets`.
+    pub data_dir: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -252,6 +255,9 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .with_secure(state.secure_cookie)
         .with_same_site(SameSite::Lax)
         .with_expiry(Expiry::OnInactivity(time::Duration::days(30)));
+    // The asset serve route lives outside /api (reserved prefix) but still
+    // needs the session to resolve AuthUser — give it its own clone.
+    let assets_session_layer = session_layer.clone();
 
     let api = Router::new()
         .route("/health", get(health))
@@ -269,6 +275,10 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         )
         .route("/decks/{id}/duplicate", post(decks::duplicate))
         .route("/decks/{id}/export", get(decks::export))
+        .route(
+            "/decks/{id}/assets",
+            post(assets::upload).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
         .route("/decks/{id}/revisions", get(decks::revisions_list))
         .route("/decks/{id}/revisions/{rev_id}", get(decks::revision_get))
         .route(
@@ -284,7 +294,14 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
             same_origin_guard,
         ))
         .layer(session_layer)
-        .with_state(state);
+        .with_state(state.clone());
+
+    // Owner-scoped asset serving (reserved `/assets/` prefix, ADR-0001). It
+    // sits outside /api, so it carries its own session layer + state.
+    let assets_router = Router::new()
+        .route("/assets/{deck_id}/{filename}", get(assets::serve))
+        .layer(assets_session_layer)
+        .with_state(state.clone());
 
     let spa = ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
     // CSP: html:false already blocks scripts in markdown, but only CSP stops
@@ -302,6 +319,7 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
     );
     Ok(Router::new()
         .nest("/api", api)
+        .merge(assets_router)
         .fallback_service(spa)
         .layer(csp))
 }

@@ -3,7 +3,9 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { EditorView, basicSetup } from 'codemirror';
 	import { markdown as markdownLang } from '@codemirror/lang-markdown';
+	import 'katex/dist/katex.min.css';
 	import { renderDeck } from '$lib/marp';
+	import { reorderSlides } from '$lib/slides';
 	import { api, ApiError, type RevisionMeta } from '$lib/api';
 
 	let { data } = $props();
@@ -70,6 +72,15 @@
 	// --- responsive tabs (below the split-pane breakpoint) ---
 	let mobileTab = $state<'write' | 'preview'>('write');
 
+	// --- slide rail + image upload ---
+	let thumbHosts = $state<Array<HTMLDivElement | null>>([]);
+	let railChromeSheet: CSSStyleSheet | null = null;
+	let railNonce = $state(0); // bumped on each preview render to refresh thumbs
+	let dragFrom = $state<number | null>(null);
+	let activeSlide = $state(0);
+	let uploading = $state(false);
+	let dropActive = $state(false);
+
 	let errorMsg = $state('');
 	let editorContainer = $state<HTMLDivElement | null>(null);
 	let view: EditorView | null = null;
@@ -93,11 +104,154 @@
 		try {
 			const { html, css, slideCount: count } = renderDeck(source);
 			slideCount = count;
+			if (activeSlide >= count) activeSlide = Math.max(0, count - 1);
 			marpSheet.replaceSync(css);
 			// html is safe here: marp renders with html:false (raw HTML escaped).
 			shadow.innerHTML = html;
+			railNonce += 1; // triggers the rail effect once the DOM has flushed
 		} catch {
 			shadow.innerHTML = `<p style="opacity:.7">Preview failed to render.</p>`;
+		}
+	}
+
+	// Clone each rendered slide SVG into its thumbnail's own shadow root, which
+	// adopts the SAME marpSheet as the preview so the thumbnail is fully styled
+	// without a second render. Runs in an effect so `thumbHosts` reflects the
+	// current slideCount after Svelte flushes the DOM.
+	function renderRail() {
+		if (!shadow || !marpSheet || !railChromeSheet) return;
+		const svgs = shadow.querySelectorAll('svg[data-marpit-svg]');
+		for (let i = 0; i < slideCount; i++) {
+			const host = thumbHosts[i];
+			if (!host) continue;
+			let root = host.shadowRoot;
+			if (!root) {
+				root = host.attachShadow({ mode: 'open' });
+				root.adoptedStyleSheets = [marpSheet, railChromeSheet];
+			}
+			const svg = svgs[i];
+			root.innerHTML = svg ? (svg as SVGElement).outerHTML : '';
+		}
+	}
+
+	$effect(() => {
+		railNonce;
+		slideCount;
+		renderRail();
+	});
+
+	/** Apply a programmatic content change (reorder / image insert) AND run the
+	 * same state updates onDocChange does — setEditorContent alone suppresses
+	 * them via applyingRemote, which would skip autosave + re-render. */
+	function applyEditorContent(next: string) {
+		if (!view) return;
+		applyingRemote = true;
+		view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+		applyingRemote = false;
+		currentMarkdown = next;
+		dirty = true;
+		if (saveStatus !== 'saving') saveStatus = 'dirty';
+		viewingRevision = null;
+		scheduleRender();
+		scheduleSave();
+	}
+
+	function onThumbDrop(to: number) {
+		const from = dragFrom;
+		dragFrom = null;
+		if (from === null || from === to || viewingRevision) return;
+		applyEditorContent(reorderSlides(currentMarkdown, from, to));
+		activeSlide = to;
+	}
+
+	function scrollToSlide(i: number) {
+		activeSlide = i;
+		const svg = shadow?.querySelectorAll('svg[data-marpit-svg]')[i] as SVGElement | undefined;
+		svg?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		mobileTab = 'preview';
+	}
+
+	/** Filenames become alt text — strip Markdown-structural characters so a
+	 * name like `array[0].png` can't break the ![](…) syntax or inject a link. */
+	function altText(name: string): string {
+		return name.replace(/[[\]()\\\r\n]/g, '').trim() || 'image';
+	}
+
+	/** Push the current editor doc into component state + autosave. Called
+	 * after each successful image insert so a later failure never strands an
+	 * already-inserted (and uploaded) image outside the save loop. */
+	function syncFromEditor() {
+		if (!view) return;
+		currentMarkdown = view.state.doc.toString();
+		dirty = true;
+		if (saveStatus !== 'saving') saveStatus = 'dirty';
+		viewingRevision = null;
+		scheduleRender();
+		scheduleSave();
+	}
+
+	async function uploadAndInsert(files: File[]) {
+		const images = files.filter((f) => f.type.startsWith('image/'));
+		if (!images.length || !view || viewingRevision) return;
+		// Guard against the deck being switched (or a restore) mid-upload: the
+		// asset is stored against THIS deck, so it must only be inserted while
+		// this deck is still open, mirroring saveNow()/saveTitle().
+		const id = deckId;
+		const epoch = saveEpoch;
+		uploading = true;
+		errorMsg = '';
+		try {
+			for (const file of images) {
+				const asset = await api.assets.upload(id, file);
+				if (deckId !== id || saveEpoch !== epoch || viewingRevision || !view) return;
+				const snippet = `![${altText(asset.originalName)}](${asset.url})\n`;
+				const pos = view.state.selection.main.head;
+				applyingRemote = true;
+				view.dispatch({
+					changes: { from: pos, insert: snippet },
+					selection: { anchor: pos + snippet.length }
+				});
+				applyingRemote = false;
+				// Sync per image, so a later upload throwing can't lose this one.
+				syncFromEditor();
+			}
+		} catch (e) {
+			if (deckId === id) {
+				errorMsg = e instanceof ApiError ? e.message : 'Image upload failed.';
+			}
+		} finally {
+			uploading = false;
+		}
+	}
+
+	function onEditorDrop(event: DragEvent) {
+		const files = [...(event.dataTransfer?.files ?? [])];
+		if (files.some((f) => f.type.startsWith('image/'))) {
+			event.preventDefault();
+			dropActive = false;
+			void uploadAndInsert(files);
+		}
+	}
+
+	function onEditorDragOver(event: DragEvent) {
+		if (event.dataTransfer?.types.includes('Files')) {
+			event.preventDefault();
+			dropActive = true;
+		}
+	}
+
+	function onEditorDragLeave() {
+		dropActive = false;
+	}
+
+	function onEditorPaste(event: ClipboardEvent) {
+		const files = [...(event.clipboardData?.items ?? [])]
+			.filter((it) => it.kind === 'file')
+			.map((it) => it.getAsFile())
+			.filter((f): f is File => f !== null && f.type.startsWith('image/'));
+		if (files.length) {
+			event.preventDefault();
+			void uploadAndInsert(files);
 		}
 	}
 
@@ -283,12 +437,20 @@
 		});
 	});
 
+	const RAIL_CHROME_CSS = `
+		:host { display: block; }
+		svg[data-marpit-svg] { display: block; width: 100%; height: auto; }
+	`;
+
 	onMount(() => {
 		shadow = previewHost!.attachShadow({ mode: 'open' });
 		marpSheet = new CSSStyleSheet();
 		const chromeSheet = new CSSStyleSheet();
 		chromeSheet.replaceSync(PREVIEW_CHROME_CSS);
 		shadow.adoptedStyleSheets = [marpSheet, chromeSheet];
+		railChromeSheet = new CSSStyleSheet();
+		railChromeSheet.replaceSync(RAIL_CHROME_CSS);
+
 		view = new EditorView({
 			parent: editorContainer!,
 			doc: currentMarkdown,
@@ -301,10 +463,22 @@
 				})
 			]
 		});
+
+		// Capture-phase so image drop/paste is intercepted before CodeMirror.
+		const host = editorContainer!;
+		host.addEventListener('drop', onEditorDrop, true);
+		host.addEventListener('dragover', onEditorDragOver, true);
+		host.addEventListener('dragleave', onEditorDragLeave);
+		host.addEventListener('paste', onEditorPaste, true);
+
 		renderPreview();
 		return () => {
 			if (saveTimer) clearTimeout(saveTimer);
 			if (renderTimer) clearTimeout(renderTimer);
+			host.removeEventListener('drop', onEditorDrop, true);
+			host.removeEventListener('dragover', onEditorDragOver, true);
+			host.removeEventListener('dragleave', onEditorDragLeave);
+			host.removeEventListener('paste', onEditorPaste, true);
 			view?.destroy();
 		};
 	});
@@ -342,6 +516,37 @@
 
 	{#if errorMsg}<p class="error" role="alert">{errorMsg}</p>{/if}
 
+	{#if slideCount > 0}
+		<div class="rail" role="listbox" aria-label="Slides">
+			{#each Array(slideCount) as _, i (i)}
+				<div
+					class="thumb"
+					class:active={i === activeSlide}
+					class:dragging={i === dragFrom}
+					draggable={!viewingRevision}
+					role="option"
+					aria-selected={i === activeSlide}
+					tabindex="0"
+					title={viewingRevision ? 'Reordering is disabled while viewing a revision' : 'Drag to reorder'}
+					ondragstart={() => (dragFrom = i)}
+					ondragend={() => (dragFrom = null)}
+					ondragover={(e) => e.preventDefault()}
+					ondrop={() => onThumbDrop(i)}
+					onclick={() => scrollToSlide(i)}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							scrollToSlide(i);
+						}
+					}}
+				>
+					<div class="thumb-canvas" bind:this={thumbHosts[i]}></div>
+					<span class="thumb-n">{i + 1}</span>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
 	<div class="tabs">
 		<button class:active={mobileTab === 'write'} onclick={() => (mobileTab = 'write')}>Write</button>
 		<button class:active={mobileTab === 'preview'} onclick={() => (mobileTab = 'preview')}>
@@ -350,8 +555,10 @@
 	</div>
 
 	<div class="workspace" class:panel-open={panelOpen}>
-		<div class="editor" data-tab-active={mobileTab === 'write'}>
+		<div class="editor" class:drop-active={dropActive} data-tab-active={mobileTab === 'write'}>
 			<div class="cm-host" bind:this={editorContainer}></div>
+			{#if dropActive}<div class="drop-hint">Drop image to upload</div>{/if}
+			{#if uploading}<div class="upload-hint">Uploading…</div>{/if}
 		</div>
 		<div class="preview" data-tab-active={mobileTab === 'preview'}>
 			{#if viewingRevision}
@@ -499,14 +706,83 @@
 		grid-template-columns: 1fr 1fr 15rem;
 	}
 
+	.rail {
+		display: flex;
+		gap: 0.5rem;
+		overflow-x: auto;
+		padding: 0.25rem 0.1rem 0.5rem;
+		flex: 0 0 auto;
+	}
+
+	.thumb {
+		position: relative;
+		flex: 0 0 auto;
+		width: 8.5rem;
+		aspect-ratio: 16 / 9;
+		border: 2px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
+		border-radius: 0.4rem;
+		overflow: hidden;
+		cursor: grab;
+		background: #fff;
+	}
+
+	.thumb.active {
+		border-color: var(--dk-ink);
+	}
+
+	.thumb.dragging {
+		opacity: 0.4;
+	}
+
+	.thumb-canvas {
+		width: 100%;
+		height: 100%;
+		pointer-events: none;
+	}
+
+	.thumb-n {
+		position: absolute;
+		bottom: 2px;
+		right: 4px;
+		font-size: 0.7rem;
+		font-weight: 700;
+		color: var(--dk-ink);
+		background: color-mix(in srgb, var(--dk-bg) 80%, transparent);
+		border-radius: 0.25rem;
+		padding: 0 0.25rem;
+		pointer-events: none;
+	}
+
 	.editor,
 	.preview {
+		position: relative;
 		min-width: 0;
 		min-height: 0;
 		overflow: auto;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
 		border-radius: 0.75rem;
 		background: #fff;
+	}
+
+	.editor.drop-active {
+		outline: 2.5px dashed var(--dk-ink);
+		outline-offset: -4px;
+	}
+
+	.drop-hint,
+	.upload-hint {
+		position: absolute;
+		top: 0.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 5;
+		font-size: 0.85rem;
+		font-weight: 600;
+		padding: 0.3rem 0.7rem;
+		border-radius: 0.5rem;
+		background: var(--dk-ink);
+		color: var(--dk-bg);
+		pointer-events: none;
 	}
 
 	.preview {

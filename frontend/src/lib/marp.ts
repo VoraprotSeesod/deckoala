@@ -1,11 +1,4 @@
 import { Marp } from '@marp-team/marp-core';
-// Document-level KaTeX font registration: Chromium ignores @font-face inside
-// Shadow DOM styles, but families registered at document level ARE usable by
-// shadow content. Vite rewrites the CSS's font URLs to bundled (same-origin)
-// assets, so the zero-external-request invariant holds. The shadow-injected
-// marp CSS still carries the structural .katex rules (and its own
-// /katex-fonts/ @font-face for browsers that do honor shadow font-faces).
-import 'katex/dist/katex.min.css';
 import { themeDeckoala } from './theme-deckoala';
 
 // One shared renderer for preview / present / print (ADR-0002: a single
@@ -14,6 +7,10 @@ import { themeDeckoala } from './theme-deckoala';
 //   get shared cross-user in BRIEF-0008). Locked by BRIEF-0003.
 // - katexFontPath points at our own static assets — marp-core's default is
 //   a CDN, which would violate the zero-external-request invariant.
+//
+// NOTE: KaTeX's CSS is imported by the editor component (not here) so this
+// module stays free of CSS side-effects and is importable in a plain Node
+// context (vitest uses it for slide segmentation).
 const marp = new Marp({
 	html: false,
 	math: { lib: 'katex', katexFontPath: '/katex-fonts/' },
@@ -30,4 +27,14 @@ export type RenderedDeck = {
 export function renderDeck(markdown: string): RenderedDeck {
 	const { html, css, comments } = marp.render(markdown);
 	return { html, css, slideCount: comments.length };
+}
+
+/** Tokenize markdown with the SAME markdown-it instance Marp uses, so slide
+ * segmentation matches Marp's slide split exactly. Marpit emits one
+ * `marpit_slide_open` token per real slide (BRIEF-0004). */
+export function parseTokens(
+	markdown: string
+): Array<{ type: string; level: number; map: [number, number] | null }> {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	return (marp as any).markdown.parse(markdown, {});
 }

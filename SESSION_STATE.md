@@ -3,7 +3,7 @@
 > Read this file FIRST at the start of every session. The Resume Pointer below is the single next action.
 
 ## ▶ Resume Pointer
-Cowork: audit BRIEF-0003 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0004 (slide thumbnail rail + drag & drop reorder + asset upload).
+Cowork: audit BRIEF-0004 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0005 (present mode + speaker notes + presenter view).
 
 ---
 
@@ -31,7 +31,8 @@ Cowork: audit BRIEF-0003 result (user returns with "เสร็จแล้ว/
 | `ลุย BRIEF-0001` | auth & users | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0002` | deck CRUD + dashboard | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0003` | editor + live preview + autosave + revisions | **done** (2026-07-21, pr-review PASS) |
-| BRIEF-0004…0010 | see ARCHITECTURE §8 roadmap | queued |
+| `ลุย BRIEF-0004` | slide rail reorder + image upload | **done** (2026-07-21, pr-review PASS) |
+| BRIEF-0005…0010 | see ARCHITECTURE §8 roadmap | queued |
 
 ## 5. Progress log
 ### 2026-07-21
@@ -48,6 +49,8 @@ Cowork: audit BRIEF-0003 result (user returns with "เสร็จแล้ว/
 - **BRIEF-0003 implemented** (same session): migration 0004 revisions; transactional PATCH snapshot (BEGIN IMMEDIATE via sqlx begin_with → auto-rollback on drop, 300s throttle, stale-baseUpdatedAt forces snapshot for the clobber case, retention cap 50 with rowid tie-break); restore/list/get routes (owner+deck scoped, cross-deck revId 404); CSP header (blocks external egress from decks); CodeMirror 6 + marp-core client-side preview in Shadow DOM via **constructable stylesheets** (CSS never HTML-parsed → style-directive XSS breakout impossible), deckoala theme (#F8F8FF/#0B1215 + Noto Sans Thai), KaTeX with locally-bundled fonts (katexFontPath=/katex-fonts/ + document-level katex.min.css import — zero external requests); autosave state machine (debounce, retry, epoch guards, beforeNavigate flush for SPA nav, in-flight-save awaited before restore); revisions panel with view/restore. Two review rounds (brief: 8 findings folded pre-code incl. BEGIN IMMEDIATE, stale-base snapshot, CSP, sizeBytes-as-blob, cross-deck test; code: 6 findings fixed incl. the blocker SPA-nav data loss and the </style> XSS breakout → constructable stylesheets). Evidence: 49 tests passed (Docker verify), svelte-check 0/0, compose healthy, browser: live Thai+KaTeX preview / autosave persists across reload / revision view+restore / CSP blocks external img / XSS probe did not fire / desktop split + mobile tabs.
 - launch.json written (.claude/launch.json: compose 8321, vite 5173, cargo 8080) — none started per user (compose stack already up).
 - Deviation log (BRIEF-0003): none — KaTeX stayed on the primary (local-font) path; MathJax fallback not needed.
+- **BRIEF-0004 implemented** (same session): migration 0005 assets; multipart upload (`POST /api/decks/{id}/assets`, magic-number sniff PNG/JPEG/GIF/WebP incl. RIFF+WEBP fourcc, 5MB cap, 8MB per-route body limit override verified, owner-scoped 404, safe_segment on deck_id + filename) + owner-scoped serve (`GET /assets/{deck}/{file}` on its own cloned SessionManagerLayer outside /api, nosniff + immutable cache). Frontend: `slides.ts` deriving slide boundaries from Marp's own `marpit_slide_open` tokens (setext/comment/indented-`---` never split → thumbnail↔reorder indices can't desync), CRLF-preserving reorder; slide rail with per-thumbnail shadow roots adopting the shared marpSheet (styled thumbnails, no re-render), native DnD reorder through the editor state path (not setEditorContent); image drop+paste (capture-phase) → upload → insert `![alt](/assets/…)` with markdown-escaped alt. katex CSS import moved to the editor so marp.ts is node-importable by vitest. Three review rounds (brief: 1 blocker [slide-split desync] + 6 fixed pre-code; code: 3 fixed incl. upload-race-on-deck-switch guard + multi-image partial-failure sync + upload deck_id safe_segment). Evidence: 61 backend tests + 16 vitest passed (Docker verify + native), svelte-check 0/0, compose healthy; browser: rail 3 thumbnails render, DnD reorder persists across reload, image drop/paste uploads + renders same-origin, 4.7MB upload proves 8MB override, alt-injection stripped, mobile 375px no h-scroll. New: vitest (`npm run test:unit`) is a native frontend gate.
+- Deferred (BRIEF-0004, noted in brief): asset GC/orphan cleanup, storage quota, media library panel, touch-drag reorder on mobile.
 
 ## 6. Open questions / blockers
 - Q5 fonts: instance-level (default, `[STD]`) — revisit at BRIEF-0007 if the user objects.

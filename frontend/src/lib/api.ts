@@ -59,6 +59,14 @@ export type Revision = {
 	markdown: string;
 };
 
+export type UploadedAsset = {
+	id: string;
+	url: string;
+	originalName: string;
+	mime: string;
+	sizeBytes: number;
+};
+
 export const api = {
 	instance: () => request<Instance>('/api/instance'),
 	me: () => request<User>('/api/auth/me'),
@@ -79,6 +87,29 @@ export const api = {
 			request<Revision>(`/api/decks/${deckId}/revisions/${revId}`),
 		restore: (deckId: string, revId: string) =>
 			request<Deck>(`/api/decks/${deckId}/revisions/${revId}/restore`, { method: 'POST' })
+	},
+	assets: {
+		// FormData sets its own multipart Content-Type/boundary — do NOT pass
+		// a JSON content-type header here.
+		upload: async (deckId: string, file: File): Promise<UploadedAsset> => {
+			const form = new FormData();
+			form.append('file', file);
+			const response = await fetch(`/api/decks/${deckId}/assets`, {
+				method: 'POST',
+				body: form
+			});
+			if (!response.ok) {
+				let message = response.statusText;
+				try {
+					const body = await response.json();
+					if (typeof body?.error === 'string') message = body.error;
+				} catch {
+					// keep statusText
+				}
+				throw new ApiError(response.status, message);
+			}
+			return response.json() as Promise<UploadedAsset>;
+		}
 	},
 	register: (username: string, password: string) =>
 		request<User>('/api/auth/register', {

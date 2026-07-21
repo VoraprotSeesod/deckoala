@@ -29,6 +29,7 @@ pub async fn test_app_full(
             allowed_origin: None,
             secure_cookie: false,
             revision_min_secs,
+            data_dir: data_dir.clone(),
         },
         std::path::Path::new("nonexistent-static"),
     )
@@ -54,6 +55,7 @@ pub struct TestResponse {
     pub headers: HeaderMap,
     pub json: serde_json::Value,
     pub text: String,
+    pub bytes: Vec<u8>,
 }
 
 /// One request against the app; returns status + headers + parsed JSON body.
@@ -96,6 +98,7 @@ pub async fn send(
         headers,
         json,
         text,
+        bytes: bytes.to_vec(),
     }
 }
 
@@ -112,6 +115,67 @@ pub async fn signup(app: &Router, username: &str) -> String {
     .await;
     assert_eq!(response.status, StatusCode::CREATED, "signup failed");
     session_cookie(&response).expect("signup must set a session cookie")
+}
+
+/// Send a raw body with an explicit Content-Type (e.g. multipart uploads).
+pub async fn send_raw(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    content_type: &str,
+    body: Vec<u8>,
+    cookie: Option<&str>,
+) -> TestResponse {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::HOST, TEST_HOST)
+        .header(header::CONTENT_TYPE, content_type);
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, cookie);
+    }
+    let request = builder.body(Body::from(body)).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    TestResponse {
+        status,
+        headers,
+        json,
+        text,
+        bytes: bytes.to_vec(),
+    }
+}
+
+/// Build a single-file `multipart/form-data` body (field name `file`).
+/// Returns (content_type_header, body_bytes).
+pub fn multipart_file(filename: &str, declared_mime: &str, data: &[u8]) -> (String, Vec<u8>) {
+    let boundary = "deckoalatestboundary1234";
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(
+        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+            .as_bytes(),
+    );
+    body.extend_from_slice(format!("Content-Type: {declared_mime}\r\n\r\n").as_bytes());
+    body.extend_from_slice(data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
+/// A minimal but valid 1x1 PNG (real signature + IHDR + IDAT + IEND).
+pub fn tiny_png() -> Vec<u8> {
+    const PNG: [u8; 67] = [
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+    PNG.to_vec()
 }
 
 /// Extract the session cookie ("name=value") from a response, if set.

@@ -112,7 +112,7 @@ networks: { deckoala-net: {} }
 | BRIEF-0001 | Auth & users (register/login/session) | 0000 |
 | BRIEF-0002 | Deck CRUD + dashboard (list/create/rename/duplicate/soft-delete/import/export .md) | 0001 |
 | BRIEF-0003 | Editor + Marp live preview + autosave + revisions | 0002 |
-| BRIEF-0004 | Slide rail drag & drop + asset upload (drop image) | 0003 |
+| BRIEF-0004 | Slide rail drag & drop reorder + image asset upload (drop/paste) | 0003 |
 | BRIEF-0005 | Present mode + speaker notes + presenter view | 0003 |
 | BRIEF-0006 | PDF export via Chromium | 0003 |
 | BRIEF-0007 | Font manager (upload + Google Fonts fetch) | 0003 |
