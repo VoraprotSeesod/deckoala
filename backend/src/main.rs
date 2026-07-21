@@ -12,7 +12,15 @@ async fn main() {
     let db = init_db(&config.data_dir)
         .await
         .expect("failed to initialize database");
-    let router = app(AppState { db }, &config.static_dir);
+    let state = AppState {
+        db,
+        allow_signup: config.allow_signup,
+        allowed_origin: config.allowed_origin.clone(),
+        secure_cookie: config.secure_cookie,
+    };
+    let router = app(state, &config.static_dir)
+        .await
+        .expect("failed to build application");
 
     let listener = tokio::net::TcpListener::bind(&config.bind)
         .await

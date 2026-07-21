@@ -43,7 +43,14 @@ curl http://localhost:8321/api/health
 | `DECKOALA_BIND` | `0.0.0.0:8080` | Address the server binds inside the container |
 | `DECKOALA_DATA_DIR` | `/data` | Where all persistent state lives |
 | `DECKOALA_STATIC_DIR` | `./static` | Built SPA location (set to `/app/static` in the image) |
+| `DECKOALA_ALLOW_SIGNUP` | `true` | Allow registration. The first account (admin) can always be created |
+| `DECKOALA_SECURE_COOKIE` | `false` | Set `true` on HTTPS deployments to add the `Secure` cookie flag |
+| `DECKOALA_PUBLIC_URL` | — | Public URL (e.g. `https://deckoala.dimenshade.com`); set it when your reverse proxy rewrites the `Host` header, so cross-origin protection accepts your domain |
 | `CHROME_BIN` | `/usr/bin/chromium` (image) | Chromium binary for PDF export |
+
+### Accounts
+
+The first account registered on a fresh instance becomes the **admin**. Registration can be closed with `DECKOALA_ALLOW_SIGNUP=false`. Session cookies are HttpOnly/SameSite=Lax; on HTTPS set `DECKOALA_SECURE_COOKIE=true`. Mutating API requests from foreign origins are rejected — if your proxy rewrites `Host`, set `DECKOALA_PUBLIC_URL`.
 
 ## Development (native)
 

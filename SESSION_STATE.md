@@ -3,7 +3,7 @@
 > Read this file FIRST at the start of every session. The Resume Pointer below is the single next action.
 
 ## ▶ Resume Pointer
-Cowork: audit BRIEF-0000 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0001 (auth & users).
+Cowork: audit BRIEF-0001 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0002 (deck CRUD + dashboard).
 
 ---
 
@@ -28,7 +28,7 @@ Cowork: audit BRIEF-0000 result (user returns with "เสร็จแล้ว/
 | Command | Brief | Status |
 |---|---|---|
 | `ลุย BRIEF-0000` | infra & scaffolding | **done** (2026-07-21, pr-review PASS) |
-| `ลุย BRIEF-0001` | auth & users | brief not written yet |
+| `ลุย BRIEF-0001` | auth & users | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0002` | deck CRUD + dashboard | brief not written yet |
 | BRIEF-0003…0009 | see ARCHITECTURE §8 roadmap | queued |
 
@@ -40,6 +40,8 @@ Cowork: audit BRIEF-0000 result (user returns with "เสร็จแล้ว/
 - BRIEF-0000 written and registered; adversarial doc-review (3 lenses, 12 findings) applied: scoped port/font invariants, added `db` to health gate, volume chown, `DECKOALA_STATIC_DIR`, reserved prefixes `/api|/assets|/fonts`, roadmap +BRIEF-0010 visual editor, presenter view → BRIEF-0005, PWA/theme gallery moved back to pending-user-choice.
 - **BRIEF-0000 implemented** (same session, user said `ลุย`): SvelteKit SPA + Axum server + SQLite migrations (reversible pair) + Docker (multi-stage, chromium, non-root, healthcheck) + compose. Evidence: `cargo test` 2 passed / clippy `-D warnings` / fmt clean (Docker verify stage); `svelte-check` 0 errors; compose up → container healthy; `/api/health` = `{"status":"ok","db":"ok","chromium":true}`; landing verified in browser desktop + 375px mobile; teardown leaves only the volume. Rust pinned 1.88.0 (deps' MSRV forced bump from 1.84; Cargo.lock committed, builds `--locked`).
 - Note for next briefs: down-migrations exist from 0001 but executing them needs sqlx-cli — bring it in with BRIEF-0001.
+- **BRIEF-0001 implemented** (same session): register/login/logout/me + /api/instance; argon2id (pinned m=19456,t=2,p=1, spawn_blocking); tower-sessions SqliteStore (Lax, 30d, cycle_id on login, hourly expired-session cleanup); origin-check CSRF (authority vs Host or DECKOALA_PUBLIC_URL, null→403); atomic first-user-admin INSERT; login: uniform 401 + dummy-hash timing + 128-byte cap; SPA: /login 3-mode form, guarded /app shell, +error page. Two adversarial review rounds (design 11 findings → brief tightened pre-code; implementation 5 findings → all fixed, incl. Vite changeOrigin:false and logout-error surfacing). Evidence: 19 tests passed (Docker verify), svelte-check 0 errors, compose healthy, curl flow 201→200→204→401/403, browser UI flow desktop + 375px mobile (measured no h-scroll; pane input broke mid-run → clicks dispatched via DOM, same app handlers). New env: DECKOALA_ALLOW_SIGNUP / DECKOALA_SECURE_COOKIE / DECKOALA_PUBLIC_URL.
+- Deferred to hardening brief (recorded in BRIEF-0001): rate limiting/lockout, register-path username enumeration.
 
 ## 6. Open questions / blockers
 - Q5 fonts: instance-level (default, `[STD]`) — revisit at BRIEF-0007 if the user objects.

@@ -52,7 +52,7 @@ open questions — never silent assumptions.
 | Command | Read this brief | What you build |
 |---|---|---|
 | `ลุย BRIEF-0000` | `docs/briefs/BRIEF-0000-infra-scaffolding.md` | Repo scaffolding: SvelteKit + Axum + Docker, landing page, health check |
-| `ลุย BRIEF-0001` | (not written yet) | Auth & users |
+| `ลุย BRIEF-0001` | `docs/briefs/BRIEF-0001-auth-users.md` | Auth & users: register/login/logout, sessions, guarded /app shell |
 | `ลุย BRIEF-0002` | (not written yet) | Deck CRUD + dashboard |
 | `ลุย BRIEF-0003` | (not written yet) | Editor + Marp live preview + autosave |
 

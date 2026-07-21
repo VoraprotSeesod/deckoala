@@ -51,7 +51,7 @@ deckoala/
 
 ## 4. Backend (Rust / Axum)
 
-- Axum + tokio; sqlx (SQLite, WAL mode); argon2id password hashing; cookie sessions (HttpOnly, SameSite=Lax) via tower-sessions (SQLite store); CSRF token on mutating routes.
+- Axum + tokio; sqlx (SQLite, WAL mode); argon2id password hashing; cookie sessions (HttpOnly, SameSite=Lax, 30-day inactivity expiry) via tower-sessions (SQLite store); CSRF defense = same-origin check on mutating routes (reject foreign `Origin` headers; SameSite=Lax covers the rest) `[STD]` per BRIEF-0001.
 - Serves: static SPA build (with SPA fallback), `/api/*` JSON, `/data`-backed files (`/assets/{deck}/{file}`, `/fonts/{file}`, `/api/fonts.css`).
 - PDF: `chromiumoxide` → opens `http://127.0.0.1:8080/print/{deck}?token={one-time}` → waits for `window.__DECKOALA_PRINT_READY` + `document.fonts.ready` → `Page.printToPDF` sized 1280×720. Chromium may only ever load 127.0.0.1 URLs (ADR-0003 contract).
 - Config env: `DECKOALA_DATA_DIR` (default `/data`), `DECKOALA_BIND` (default `0.0.0.0:8080`), `DECKOALA_STATIC_DIR` (default `./static`; the Dockerfile copies the SvelteKit build there — `cargo run` in dev serves no SPA, Vite covers it), `DECKOALA_PUBLIC_URL`, `CHROME_BIN`, `DECKOALA_ALLOW_SIGNUP` (default `true`; admin can later disable).

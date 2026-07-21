@@ -1,59 +1,31 @@
-use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
-use http_body_util::BodyExt;
-use tower::ServiceExt;
+mod common;
 
-use deckoala_server::{app, init_db, AppState};
-
-/// Fresh app backed by a real migrated SQLite database in a unique temp dir.
-async fn test_app(name: &str) -> axum::Router {
-    let data_dir =
-        std::env::temp_dir().join(format!("deckoala-test-{}-{name}", std::process::id()));
-    let db = init_db(&data_dir).await.expect("init_db failed");
-    app(AppState { db }, std::path::Path::new("nonexistent-static"))
-}
+use axum::http::{header, StatusCode};
+use common::{send, test_app};
 
 #[tokio::test]
 async fn health_reports_ok_with_migrated_db() {
     let app = test_app("health").await;
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/health")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&app, "GET", "/api/health", None, None, None).await;
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["status"], "ok");
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.json["status"], "ok");
     assert_eq!(
-        json["db"], "ok",
+        response.json["db"], "ok",
         "migrations must have seeded the meta table"
     );
-    assert!(json["chromium"].is_boolean());
-    assert!(json["version"].is_string());
+    assert!(response.json["chromium"].is_boolean());
+    assert!(response.json["version"].is_string());
 }
 
 #[tokio::test]
 async fn unknown_api_route_returns_json_404_not_spa() {
     let app = test_app("api404").await;
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/definitely-not-a-route")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let response = send(&app, "GET", "/api/definitely-not-a-route", None, None, None).await;
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
     let content_type = response
-        .headers()
+        .headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
@@ -62,4 +34,25 @@ async fn unknown_api_route_returns_json_404_not_spa() {
         content_type.starts_with("application/json"),
         "unknown /api/* must be JSON, got content-type: {content_type}"
     );
+}
+
+#[tokio::test]
+async fn instance_reports_signup_and_user_state() {
+    let app = test_app("instance").await;
+    let before = send(&app, "GET", "/api/instance", None, None, None).await;
+    assert_eq!(before.status, StatusCode::OK);
+    assert_eq!(before.json["allowSignup"], true);
+    assert_eq!(before.json["hasUsers"], false);
+
+    send(
+        &app,
+        "POST",
+        "/api/auth/register",
+        Some(serde_json::json!({ "username": "koala", "password": "password123" })),
+        None,
+        None,
+    )
+    .await;
+    let after = send(&app, "GET", "/api/instance", None, None, None).await;
+    assert_eq!(after.json["hasUsers"], true);
 }

@@ -7,6 +7,10 @@ services:
     container_name: deckoala-app
     ports:
       - "${DECKOALA_PORT:-8321}:8080"
+    environment:
+      DECKOALA_ALLOW_SIGNUP: "${DECKOALA_ALLOW_SIGNUP:-true}"
+      DECKOALA_SECURE_COOKIE: "${DECKOALA_SECURE_COOKIE:-false}"
+      DECKOALA_PUBLIC_URL: "${DECKOALA_PUBLIC_URL:-}"
     volumes:
       - deckoala-data:/data
     networks:
