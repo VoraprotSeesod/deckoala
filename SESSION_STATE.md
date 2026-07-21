@@ -3,7 +3,7 @@
 > Read this file FIRST at the start of every session. The Resume Pointer below is the single next action.
 
 ## ▶ Resume Pointer
-Cowork: audit BRIEF-0004 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0005 (present mode + speaker notes + presenter view).
+Cowork: audit BRIEF-0005 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0006 (PDF export via headless Chromium).
 
 ---
 
@@ -32,7 +32,8 @@ Cowork: audit BRIEF-0004 result (user returns with "เสร็จแล้ว/
 | `ลุย BRIEF-0002` | deck CRUD + dashboard | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0003` | editor + live preview + autosave + revisions | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0004` | slide rail reorder + image upload | **done** (2026-07-21, pr-review PASS) |
-| BRIEF-0005…0010 | see ARCHITECTURE §8 roadmap | queued |
+| `ลุย BRIEF-0005` | present mode + speaker notes + presenter view | **done** (2026-07-21, pr-review PASS) |
+| BRIEF-0006…0010 | see ARCHITECTURE §8 roadmap | queued |
 
 ## 5. Progress log
 ### 2026-07-21
@@ -51,6 +52,7 @@ Cowork: audit BRIEF-0004 result (user returns with "เสร็จแล้ว/
 - Deviation log (BRIEF-0003): none — KaTeX stayed on the primary (local-font) path; MathJax fallback not needed.
 - **BRIEF-0004 implemented** (same session): migration 0005 assets; multipart upload (`POST /api/decks/{id}/assets`, magic-number sniff PNG/JPEG/GIF/WebP incl. RIFF+WEBP fourcc, 5MB cap, 8MB per-route body limit override verified, owner-scoped 404, safe_segment on deck_id + filename) + owner-scoped serve (`GET /assets/{deck}/{file}` on its own cloned SessionManagerLayer outside /api, nosniff + immutable cache). Frontend: `slides.ts` deriving slide boundaries from Marp's own `marpit_slide_open` tokens (setext/comment/indented-`---` never split → thumbnail↔reorder indices can't desync), CRLF-preserving reorder; slide rail with per-thumbnail shadow roots adopting the shared marpSheet (styled thumbnails, no re-render), native DnD reorder through the editor state path (not setEditorContent); image drop+paste (capture-phase) → upload → insert `![alt](/assets/…)` with markdown-escaped alt. katex CSS import moved to the editor so marp.ts is node-importable by vitest. Three review rounds (brief: 1 blocker [slide-split desync] + 6 fixed pre-code; code: 3 fixed incl. upload-race-on-deck-switch guard + multi-image partial-failure sync + upload deck_id safe_segment). Evidence: 61 backend tests + 16 vitest passed (Docker verify + native), svelte-check 0/0, compose healthy; browser: rail 3 thumbnails render, DnD reorder persists across reload, image drop/paste uploads + renders same-origin, 4.7MB upload proves 8MB override, alt-injection stripped, mobile 375px no h-scroll. New: vitest (`npm run test:unit`) is a native frontend gate.
 - Deferred (BRIEF-0004, noted in brief): asset GC/orphan cleanup, storage quota, media library panel, touch-drag reorder on mobile.
+- **BRIEF-0005 implemented** (same session, frontend-only — no backend change): `renderDeck` now returns per-slide `notes` from marp `comments` (directive comments like `<!-- _class -->` are auto-excluded, verified). New route `/present/[id]` (own owner-scoped load, 401→login / 404→error): audience mode (one slide letterboxed on ink via the SVG's own viewBox+preserveAspectRatio, keyboard ←/→/Space/PageUp/Dn/Home/End/n/p, `f` fullscreen, touch swipe, idle-auto-hiding control bar) and presenter mode `?presenter` (current + next slide in separate shadow hosts sharing the marpSheet, speaker notes as text, mm:ss timer with pause/reset, prev/next/Exit). Cross-window sync via `BroadcastChannel('deckoala-present-<id>')` with a hello/state handshake (fixes presenter-opens-on-wrong-slide) + hash seed; nav in either window moves both. Present entry points added to editor top bar + dashboard cards. Fixes from 2 review rounds (design: 6 findings incl. 2-surface presenter render, empty-deck guard, handshake, Esc-vs-fullscreen race, aspect-ratio letterbox; code: 5 incl. hash-seed-vs-handshake, `:hover` bar unusable on touch → JS idle timer, focused-button swallowing keyboard nav → blur, presenter Exit button + window.close fallback, popup-blocked notice). Also fixed a render bug found in-browser: extracting a lone `<svg>` dropped the `.marpit` wrapper the theme scopes to → slides rendered transparent; now wrapped (applied to the editor rail too). Evidence: svelte-check 0/0, vitest 16, build ✓, backend suite unchanged (61 tests green from BRIEF-0004 verify); browser: slide renders letterboxed + KaTeX, arrow/swipe nav + counter, presenter shows current/next/note/timer, handshake synced presenter to the audience's slide with NO hash, bidirectional sync, **note shown in presenter only (not on slide)**, mobile swipe no h-scroll.
 
 ## 6. Open questions / blockers
 - Q5 fonts: instance-level (default, `[STD]`) — revisit at BRIEF-0007 if the user objects.

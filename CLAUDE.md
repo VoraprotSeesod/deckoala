@@ -56,6 +56,7 @@ open questions — never silent assumptions.
 | `ลุย BRIEF-0002` | `docs/briefs/BRIEF-0002-deck-crud.md` | Deck CRUD + dashboard: list/create/rename/duplicate/soft-delete/import/export |
 | `ลุย BRIEF-0003` | `docs/briefs/BRIEF-0003-editor-preview.md` | Editor (CodeMirror) + Marp live preview + deckoala theme + autosave + revisions |
 | `ลุย BRIEF-0004` | `docs/briefs/BRIEF-0004-slide-rail-assets.md` | Slide thumbnail rail (drag reorder) + image upload (drop/paste) |
+| `ลุย BRIEF-0005` | `docs/briefs/BRIEF-0005-present-mode.md` | Present mode (fullscreen) + speaker notes + presenter view |
 
 > If the user says just "ลุย" with no task, build the next unchecked brief. Full roadmap: `docs/design/ARCHITECTURE.md` §8.
 

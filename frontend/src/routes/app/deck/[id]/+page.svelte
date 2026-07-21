@@ -439,6 +439,7 @@
 
 	const RAIL_CHROME_CSS = `
 		:host { display: block; }
+		.marpit { display: block; }
 		svg[data-marpit-svg] { display: block; width: 100%; height: auto; }
 	`;
 
@@ -510,6 +511,7 @@
 			{:else}Saved{/if}
 		</span>
 		<span class="slides">{slideCount} slide{slideCount === 1 ? '' : 's'}</span>
+		<a class="button" href="/present/{deckId}">Present</a>
 		<a class="button" href={api.decks.exportUrl(deckId)} download>Export .md</a>
 		<button class="button" class:active={panelOpen} onclick={togglePanel}>Revisions</button>
 	</div>

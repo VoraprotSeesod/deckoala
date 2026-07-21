@@ -22,11 +22,20 @@ export type RenderedDeck = {
 	html: string;
 	css: string;
 	slideCount: number;
+	/** Speaker notes per slide (Marp HTML comments; directive comments like
+	 * `<!-- _class: lead -->` are excluded by marp-core). '' when a slide has
+	 * no notes. Rendered as plain text — never as HTML. */
+	notes: string[];
 };
 
 export function renderDeck(markdown: string): RenderedDeck {
 	const { html, css, comments } = marp.render(markdown);
-	return { html, css, slideCount: comments.length };
+	return {
+		html,
+		css,
+		slideCount: comments.length,
+		notes: comments.map((slideComments) => slideComments.join('\n\n'))
+	};
 }
 
 /** Tokenize markdown with the SAME markdown-it instance Marp uses, so slide

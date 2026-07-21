@@ -132,6 +132,7 @@
 					<a class="title" href="/app/deck/{deck.id}">{deck.title}</a>
 					<span class="meta">Updated {updatedLabel(deck.updatedAt)}</span>
 					<div class="row">
+						<a class="button" href="/present/{deck.id}">Present</a>
 						<button onclick={() => rename(deck)}>Rename</button>
 						<button onclick={() => duplicate(deck)}>Duplicate</button>
 						<a class="button" href={api.decks.exportUrl(deck.id)} download>Export</a>
