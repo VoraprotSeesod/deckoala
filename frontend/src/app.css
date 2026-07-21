@@ -26,6 +26,10 @@
 
 html {
 	box-sizing: border-box;
+	/* Reserve the scrollbar track so locking body scroll for a modal (the
+	   command palette, help sheet, share manager) does not shift the page
+	   sideways by the scrollbar width. */
+	scrollbar-gutter: stable;
 }
 
 *,

@@ -63,6 +63,7 @@ open questions — never silent assumptions.
 | `ลุย BRIEF-0009` | `docs/briefs/BRIEF-0009-i18n-darkmode.md` | Polish: Thai UI i18n (default Thai + toggle) + app dark mode |
 | `ลุย BRIEF-0010` | `docs/briefs/BRIEF-0010-admin-settings-ai.md` | Admin settings + `root` bootstrap + change-password + AI slide generation |
 | `ลุย BRIEF-0011` | `docs/briefs/BRIEF-0011-mcp-server.md` | MCP server (`POST /mcp`) + per-user revocable API tokens + stdio bridge |
+| `ลุย BRIEF-0009b` | `docs/briefs/BRIEF-0009b-command-palette.md` | Command palette (`Mod-K`) + keyboard shortcuts + shortcut help sheet |
 
 > If the user says just "ลุย" with no task, build the next unchecked brief. Full roadmap: `docs/design/ARCHITECTURE.md` §8.
 

@@ -2,7 +2,10 @@
 	import { goto } from '$app/navigation';
 	import { api, ApiError, type DeckMeta } from '$lib/api';
 	import ShareManager from '$lib/components/ShareManager.svelte';
+	import { getPalette } from '$lib/palette.svelte';
 	import { t, formatDate } from '$lib/i18n.svelte';
+
+	const palette = getPalette();
 
 	let { data } = $props();
 	let sharingDeckId = $state<string | null>(null);
@@ -107,6 +110,39 @@
 			fail(e);
 		}
 	}
+
+	// Contribute the dashboard's own handlers to the palette. The layout cannot
+	// reconstruct these: `fileInput` is local state, and `.click()` on a file
+	// input only works inside the original user gesture — so `run` must stay
+	// synchronous all the way from the palette's Enter handler.
+	$effect(() =>
+		palette.register([
+			// `keywords` matter: the UI defaults to Thai, so without an English
+			// alias a user typing "import" matches nothing.
+			{
+				id: 'page.newDeck',
+				section: 'action',
+				labelKey: 'cmd.newDeck',
+				keywords: 'new deck create',
+				shortcut: ['N'],
+				run: () => void newDeck()
+			},
+			{
+				id: 'page.import',
+				section: 'action',
+				labelKey: 'cmd.import',
+				keywords: 'import markdown md upload',
+				run: () => fileInput?.click()
+			}
+		])
+	);
+
+	// Any mutation makes the palette's cached deck list stale — a jump to a
+	// deleted deck would otherwise 404 into the error boundary.
+	$effect(() => {
+		decks.length;
+		palette.invalidateDecks();
+	});
 </script>
 
 <svelte:head>

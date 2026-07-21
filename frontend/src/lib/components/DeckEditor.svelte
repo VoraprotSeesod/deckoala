@@ -4,14 +4,20 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { EditorView, basicSetup } from 'codemirror';
 	import { markdown as markdownLang } from '@codemirror/lang-markdown';
-	import { Compartment } from '@codemirror/state';
+	import { Compartment, Prec } from '@codemirror/state';
+	import { keymap } from '@codemirror/view';
 	import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 	import { tags } from '@lezer/highlight';
 	import 'katex/dist/katex.min.css';
 	import { renderDeck } from '$lib/marp';
 	import { reorderSlides } from '$lib/slides';
 	import { api, ApiError, type EditorAdapter, type RevisionMeta } from '$lib/api';
+	import { getPalette } from '$lib/palette.svelte';
 	import { t, formatDate, formatTime, settings } from '$lib/i18n.svelte';
+
+	// On /s/[token] there is no /app layout, so this is the no-op handle: the
+	// editor keeps Mod-S (save on demand) but has no palette to open.
+	const palette = getPalette();
 
 	// CodeMirror carries no dark theme by default, so in the app's dark mode its
 	// gutter/caret/syntax colours stay light-tuned on the dark surface. Swap a
@@ -423,6 +429,51 @@
 		}
 	}
 
+	// Contribute the editor's own actions to the palette. Each `run` is
+	// synchronous from the palette's Enter handler; the ones that navigate or
+	// download keep working because they only *start* async work.
+	$effect(() =>
+		palette.register([
+			// English aliases so the Thai-default UI is still searchable in English.
+			{
+				id: 'page.save',
+				section: 'action',
+				labelKey: 'cmd.save',
+				keywords: 'save write',
+				shortcut: ['Mod', 'S'],
+				run: () => void saveNow()
+			},
+			...(presentHref || onPresent
+				? [
+						{
+							id: 'page.present',
+							section: 'action' as const,
+							labelKey: 'cmd.present',
+							keywords: 'present slideshow fullscreen',
+							run: () => {
+								if (presentHref) window.location.assign(presentHref);
+								else onPresent?.(currentMarkdown);
+							}
+						}
+					]
+				: []),
+			{
+				id: 'page.pdf',
+				section: 'action',
+				labelKey: 'cmd.exportPdf',
+				keywords: 'pdf export download print',
+				run: () => void exportPdf()
+			},
+			{
+				id: 'page.revisions',
+				section: 'action',
+				labelKey: 'cmd.revisions',
+				keywords: 'revisions history versions',
+				run: togglePanel
+			}
+		])
+	);
+
 	function onDocChange(content: string) {
 		if (applyingRemote) return;
 		currentMarkdown = content;
@@ -572,6 +623,32 @@
 			parent: editorContainer!,
 			doc: currentMarkdown,
 			extensions: [
+				// Highest precedence: CodeMirror's own keymap sees keys before any
+				// window listener, so Mod-S here is what stops the browser's
+				// Save-page dialog while the caret is in the editor. Mod-K opens
+				// the palette from inside the editor for the same reason.
+				// (Mod-Shift-K is deliberately untouched — CodeMirror binds it to
+				// deleteLine.)
+				Prec.highest(
+					keymap.of([
+						{
+							key: 'Mod-s',
+							preventDefault: true,
+							run: () => {
+								void saveNow();
+								return true;
+							}
+						},
+						{
+							key: 'Mod-k',
+							preventDefault: true,
+							run: () => {
+								palette.open();
+								return true;
+							}
+						}
+					])
+				),
 				basicSetup,
 				markdownLang(),
 				EditorView.lineWrapping,

@@ -120,6 +120,7 @@ networks: { deckoala-net: {} }
 | BRIEF-0009 | Polish: Thai UI i18n (+ any nice-to-haves the user approves from REQ-ANALYSIS §7) | rest |
 | BRIEF-0010 | Admin settings + `root` bootstrap + AI slide generation (new user requirement) | 0002 |
 | BRIEF-0011 | MCP server + per-user API tokens (connect an external AI client) | 0010 |
+| BRIEF-0009b | Command palette + keyboard shortcuts (REQ-ANALYSIS §7) | 0009 |
 | BRIEF-0012 | Visual editor, phase 2 (`[USER]` Q3 deferral) | 0004 |
 
 Briefs are written one (or a small buffer) at a time by the design side; only BRIEF-0000 exists so far.
