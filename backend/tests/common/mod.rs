@@ -169,6 +169,43 @@ pub fn multipart_file(filename: &str, declared_mime: &str, data: &[u8]) -> (Stri
     (format!("multipart/form-data; boundary={boundary}"), body)
 }
 
+/// Multipart body with text fields + one `file` field (e.g. font upload).
+/// Returns (content_type_header, body_bytes).
+pub fn multipart_fields(
+    fields: &[(&str, &str)],
+    file: Option<(&str, &str, &[u8])>,
+) -> (String, Vec<u8>) {
+    let boundary = "deckoalafontboundary9876";
+    let mut body = Vec::new();
+    for (name, value) in fields {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(value.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+    if let Some((filename, mime, data)) = file {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+                .as_bytes(),
+        );
+        body.extend_from_slice(format!("Content-Type: {mime}\r\n\r\n").as_bytes());
+        body.extend_from_slice(data);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
+/// Minimal bytes that pass the WOFF2 magic-byte sniff (not a real font).
+pub fn fake_woff2() -> Vec<u8> {
+    let mut v = b"wOF2".to_vec();
+    v.extend(std::iter::repeat_n(0u8, 200));
+    v
+}
+
 /// A minimal but valid 1x1 PNG (real signature + IHDR + IDAT + IEND).
 pub fn tiny_png() -> Vec<u8> {
     const PNG: [u8; 67] = [

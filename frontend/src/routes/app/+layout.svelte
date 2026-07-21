@@ -26,6 +26,7 @@
 		</a>
 		<div class="session">
 			{#if logoutError}<span class="logout-error" role="alert">{logoutError}</span>{/if}
+			<a class="navlink" href="/app/fonts">Fonts</a>
 			<span class="user">{data.user.username}</span>
 			<button onclick={logout}>Log out</button>
 		</div>
@@ -72,6 +73,17 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.navlink {
+		font-weight: 600;
+		font-size: 0.9rem;
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.navlink:hover {
+		text-decoration: underline;
 	}
 
 	.logout-error {

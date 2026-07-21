@@ -67,6 +67,16 @@ export type UploadedAsset = {
 	sizeBytes: number;
 };
 
+export type FontInfo = {
+	id: string;
+	family: string;
+	weight: string;
+	style: string;
+	format: string;
+	source: string;
+	createdAt: string;
+};
+
 export const api = {
 	instance: () => request<Instance>('/api/instance'),
 	me: () => request<User>('/api/auth/me'),
@@ -105,6 +115,45 @@ export const api = {
 			a.click();
 			a.remove();
 			URL.revokeObjectURL(url);
+		}
+	},
+	fonts: {
+		list: () => request<FontInfo[]>('/api/fonts'),
+		upload: async (
+			family: string,
+			weight: string,
+			style: string,
+			file: File
+		): Promise<FontInfo[]> => {
+			const form = new FormData();
+			form.append('family', family);
+			form.append('weight', weight);
+			form.append('style', style);
+			form.append('file', file);
+			const res = await fetch('/api/fonts', { method: 'POST', body: form });
+			if (!res.ok) {
+				let message = res.statusText;
+				try {
+					const body = await res.json();
+					if (typeof body?.error === 'string') message = body.error;
+				} catch {
+					// keep statusText
+				}
+				throw new ApiError(res.status, message);
+			}
+			return res.json() as Promise<FontInfo[]>;
+		},
+		google: (family: string, weights: string[]) =>
+			request<FontInfo[]>('/api/fonts/google', {
+				method: 'POST',
+				body: JSON.stringify({ family, weights })
+			}),
+		remove: (id: string) => request<void>(`/api/fonts/${id}`, { method: 'DELETE' }),
+		// Re-fetch the document's fonts.css <link> so a just-installed font shows
+		// without a full reload (fonts.css is served no-cache).
+		reloadCss: () => {
+			const link = document.querySelector<HTMLLinkElement>('link[data-deckoala-fonts]');
+			if (link) link.href = `/api/fonts.css?t=${Date.now()}`;
 		}
 	},
 	revisions: {

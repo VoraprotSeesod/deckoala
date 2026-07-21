@@ -35,6 +35,32 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
+/// Extractor: a signed-in ADMIN (401 without a session, 403 when not admin).
+/// Instance-level resources (fonts) are admin-managed (Q5 [STD]).
+pub struct AdminUser(pub String);
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let AuthUser(user_id) = AuthUser::from_request_parts(parts, state).await?;
+        let is_admin: Option<i64> = sqlx::query_scalar("SELECT is_admin FROM users WHERE id = ?1")
+            .bind(&user_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+        if is_admin == Some(1) {
+            Ok(AdminUser(user_id))
+        } else {
+            Err(json_error(StatusCode::FORBIDDEN, "admin only"))
+        }
+    }
+}
+
 #[derive(sqlx::FromRow)]
 struct DeckRow {
     id: String,

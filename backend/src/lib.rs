@@ -2,6 +2,7 @@ pub mod assets;
 pub mod auth;
 pub mod decks;
 pub mod export;
+pub mod fonts;
 
 use std::path::{Path, PathBuf};
 
@@ -335,6 +336,15 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         )
         .route("/decks/{id}/export/pdf", post(export::export_pdf))
         .route("/print/{id}", get(export::print_data))
+        .route(
+            "/fonts",
+            get(fonts::list)
+                .post(fonts::upload)
+                .layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        .route("/fonts/google", post(fonts::google))
+        .route("/fonts/{id}", axum::routing::delete(fonts::delete))
+        .route("/fonts.css", get(fonts::fonts_css))
         .fallback(api_not_found)
         // JSON escaping can double a 1 MB markdown payload; the app-level
         // 1 MB cap stays authoritative (BRIEF-0002).
@@ -351,6 +361,12 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
     let assets_router = Router::new()
         .route("/assets/{deck_id}/{filename}", get(assets::serve))
         .layer(assets_session_layer)
+        .with_state(state.clone());
+
+    // Installed fonts (reserved `/fonts/` prefix). Public + session-less so
+    // the PDF-export Chromium (no session) can load them.
+    let fonts_router = Router::new()
+        .route("/fonts/{filename}", get(fonts::serve))
         .with_state(state.clone());
 
     let spa = ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
@@ -370,6 +386,7 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
     Ok(Router::new()
         .nest("/api", api)
         .merge(assets_router)
+        .merge(fonts_router)
         .fallback_service(spa)
         .layer(csp))
 }
