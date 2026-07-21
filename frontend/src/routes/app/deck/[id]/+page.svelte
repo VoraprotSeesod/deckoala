@@ -19,6 +19,7 @@
 	backHref="/app"
 	backLabel={t('editor.backDecks')}
 	{presentHref}
+	aiEnabled={data.user.aiEnabled}
 	extra={shareButton}
 />
 

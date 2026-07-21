@@ -10,7 +10,7 @@
 	import 'katex/dist/katex.min.css';
 	import { renderDeck } from '$lib/marp';
 	import { reorderSlides } from '$lib/slides';
-	import { ApiError, type EditorAdapter, type RevisionMeta } from '$lib/api';
+	import { api, ApiError, type EditorAdapter, type RevisionMeta } from '$lib/api';
 	import { t, formatDate, formatTime, settings } from '$lib/i18n.svelte';
 
 	// CodeMirror carries no dark theme by default, so in the app's dark mode its
@@ -54,7 +54,8 @@
 		presentHref,
 		onPresent,
 		banner,
-		extra
+		extra,
+		aiEnabled = false
 	}: {
 		deck: { id: string; title: string; markdown: string; updatedAt: string };
 		adapter: EditorAdapter;
@@ -66,6 +67,9 @@
 		banner?: string;
 		/** Optional owner-only controls rendered in the top bar (e.g. Share). */
 		extra?: Snippet;
+		/** Owner route ONLY. Never set from /s/[token], so an anonymous
+		 * share-edit visitor can't spend the instance's AI budget. */
+		aiEnabled?: boolean;
 	} = $props();
 
 	const back = $derived(backLabel ?? t('editor.backDecks'));
@@ -142,6 +146,56 @@
 	let activeSlide = $state(0);
 	let uploading = $state(false);
 	let dropActive = $state(false);
+
+	// --- AI generation (owner route only) ---
+	let aiOpen = $state(false);
+	let aiPrompt = $state('');
+	let aiUseContext = $state(true);
+	let aiBusy = $state(false);
+	let aiError = $state('');
+	let aiResult = $state('');
+
+	/** The model returns a whole deck; when appending we drop its frontmatter so
+	 * the existing deck keeps exactly one. */
+	function stripFrontmatter(md: string): string {
+		const match = md.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+		return match ? md.slice(match[0].length).trimStart() : md;
+	}
+
+	async function runGenerate() {
+		if (!aiPrompt.trim()) return;
+		aiBusy = true;
+		aiError = '';
+		aiResult = '';
+		try {
+			const res = await api.ai.generate(
+				aiPrompt.trim(),
+				aiUseContext ? currentMarkdown : undefined
+			);
+			aiResult = res.markdown;
+		} catch (e) {
+			aiError = e instanceof ApiError ? e.message : t('ai.failed');
+		} finally {
+			aiBusy = false;
+		}
+	}
+
+	function applyAi(mode: 'append' | 'replace') {
+		if (!aiResult) return;
+		const next =
+			mode === 'replace'
+				? aiResult
+				: `${currentMarkdown.trimEnd()}\n\n---\n\n${stripFrontmatter(aiResult)}\n`;
+		applyEditorContent(next);
+		closeAi();
+	}
+
+	function closeAi() {
+		aiOpen = false;
+		aiPrompt = '';
+		aiResult = '';
+		aiError = '';
+	}
 
 	let errorMsg = $state('');
 	let pdfBusy = $state(false);
@@ -584,6 +638,9 @@
 		</button>
 		<a class="button" href={adapter.exportMdUrl} download>{t('editor.exportMd')}</a>
 		<button class="button" class:active={panelOpen} onclick={togglePanel}>{t('editor.revisions')}</button>
+		{#if aiEnabled}
+			<button class="button ai" onclick={() => (aiOpen = true)}>{t('ai.button')}</button>
+		{/if}
 		{@render extra?.()}
 	</div>
 
@@ -672,7 +729,127 @@
 	</div>
 </article>
 
+{#if aiOpen}
+	<div
+		class="ai-overlay"
+		role="button"
+		tabindex="0"
+		aria-label={t('common.close')}
+		onclick={closeAi}
+		onkeydown={(e) => {
+			if (e.key === 'Escape') closeAi();
+		}}
+	></div>
+	<div class="ai-modal" role="dialog" aria-modal="true" aria-label={t('ai.title')}>
+		<h2>{t('ai.title')}</h2>
+		{#if aiError}<p class="error" role="alert">{aiError}</p>{/if}
+		<label class="ai-label">
+			{t('ai.promptLabel')}
+			<textarea bind:value={aiPrompt} rows="3" placeholder={t('ai.promptPlaceholder')}></textarea>
+		</label>
+		<label class="ai-check">
+			<input type="checkbox" bind:checked={aiUseContext} />
+			{t('ai.useContext')}
+		</label>
+		<div class="ai-actions">
+			<button class="button" onclick={runGenerate} disabled={aiBusy || !aiPrompt.trim()}>
+				{aiBusy ? t('ai.generating') : t('ai.generate')}
+			</button>
+			<button class="button" onclick={closeAi}>{t('ai.discard')}</button>
+		</div>
+		{#if aiResult}
+			<h3>{t('ai.result')}</h3>
+			<pre class="ai-result">{aiResult}</pre>
+			<div class="ai-actions">
+				<button class="button" onclick={() => applyAi('append')}>{t('ai.insert')}</button>
+				<button class="button" onclick={() => applyAi('replace')}>{t('ai.replace')}</button>
+			</div>
+		{/if}
+	</div>
+{/if}
+
 <style>
+	.ai-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(11, 18, 21, 0.4);
+		z-index: 40;
+	}
+
+	.ai-modal {
+		position: fixed;
+		z-index: 41;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		width: min(38rem, calc(100vw - 2rem));
+		max-height: calc(100dvh - 3rem);
+		overflow: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		background: var(--dk-bg);
+		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 25%, transparent);
+		border-radius: 0.9rem;
+		padding: 1.25rem;
+		box-shadow: 0 10px 40px rgba(11, 18, 21, 0.25);
+	}
+
+	.ai-modal h2 {
+		font-size: 1.15rem;
+		margin: 0;
+	}
+
+	.ai-modal h3 {
+		font-size: 0.95rem;
+		margin: 0.4rem 0 0;
+	}
+
+	.ai-label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+	}
+
+	.ai-label textarea {
+		font: inherit;
+		font-weight: 400;
+		padding: 0.5rem 0.6rem;
+		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 25%, transparent);
+		border-radius: 0.5rem;
+		background: var(--dk-surface);
+		color: var(--dk-ink);
+		resize: vertical;
+	}
+
+	.ai-check {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		font-size: 0.85rem;
+	}
+
+	.ai-actions {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.ai-result {
+		margin: 0;
+		max-height: 16rem;
+		overflow: auto;
+		padding: 0.6rem 0.75rem;
+		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
+		border-radius: 0.5rem;
+		background: var(--dk-surface);
+		font-size: 0.8rem;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
 	article {
 		display: flex;
 		flex-direction: column;

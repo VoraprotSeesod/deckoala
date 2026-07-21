@@ -34,6 +34,8 @@ pub async fn test_app_full(
             local_addr: "127.0.0.1:8080".to_owned(),
             export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             share_export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
+            ai_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
+            ai_last_call: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         },
         std::path::Path::new("nonexistent-static"),
     )

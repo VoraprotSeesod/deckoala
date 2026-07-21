@@ -11,6 +11,9 @@ services:
       DECKOALA_ALLOW_SIGNUP: "${DECKOALA_ALLOW_SIGNUP:-true}"
       DECKOALA_SECURE_COOKIE: "${DECKOALA_SECURE_COOKIE:-false}"
       DECKOALA_PUBLIC_URL: "${DECKOALA_PUBLIC_URL:-}"
+      # Password for the seeded bootstrap admin `root`, applied only on a first
+      # start with an empty database. Leave blank to use the built-in default.
+      DECKOALA_ROOT_PASSWORD: "${DECKOALA_ROOT_PASSWORD:-}"
     volumes:
       - deckoala-data:/data
     networks:

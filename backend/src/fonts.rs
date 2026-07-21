@@ -314,7 +314,7 @@ fn no_redirect_client(timeout: Duration) -> Result<reqwest::Client, reqwest::Err
 /// NOT be mistaken for a clean end-of-body: accepting the partial bytes would
 /// store a truncated, corrupt font that browsers and the PDF renderer fail to
 /// decode while the DB claims it is installed.
-async fn read_capped(mut resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
+pub(crate) async fn read_capped(mut resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
     let mut buf = Vec::new();
     loop {
         match resp.chunk().await {

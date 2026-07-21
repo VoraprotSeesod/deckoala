@@ -10,6 +10,41 @@ export type Instance = {
 	hasUsers: boolean;
 };
 
+/** `/api/auth/me` adds two session-gated flags on top of `User`. They are
+ * deliberately NOT on the anonymous `/api/instance`. */
+export type Me = User & {
+	rootPasswordIsDefault: boolean;
+	/** The only AI signal a non-admin gets — provider/baseUrl/model are admin-only. */
+	aiEnabled: boolean;
+};
+
+export type AiProvider = 'anthropic' | 'openai';
+
+export type AiSettings = {
+	enabled: boolean;
+	provider: AiProvider;
+	baseUrl: string;
+	model: string;
+	/** The key itself is never sent by the server. */
+	apiKeySet: boolean;
+	apiKeyLast4: string | null;
+};
+
+export type AdminSettings = {
+	ai: AiSettings;
+	rootPasswordIsDefault: boolean;
+};
+
+export type AiSettingsUpdate = {
+	enabled: boolean;
+	provider: AiProvider;
+	baseUrl: string;
+	model: string;
+	/** Omit/empty to keep the stored key. */
+	apiKey?: string;
+	removeApiKey?: boolean;
+};
+
 export class ApiError extends Error {
 	status: number;
 	constructor(status: number, message: string) {
@@ -152,7 +187,24 @@ async function uploadFileTo<T>(url: string, file: File): Promise<T> {
 
 export const api = {
 	instance: () => request<Instance>('/api/instance'),
-	me: () => request<User>('/api/auth/me'),
+	me: () => request<Me>('/api/auth/me'),
+	changePassword: (currentPassword: string, newPassword: string) =>
+		request<void>('/api/auth/password', {
+			method: 'POST',
+			body: JSON.stringify({ currentPassword, newPassword })
+		}),
+	admin: {
+		getSettings: () => request<AdminSettings>('/api/admin/settings'),
+		putSettings: (body: AiSettingsUpdate) =>
+			request<AdminSettings>('/api/admin/settings', { method: 'PUT', body: JSON.stringify(body) })
+	},
+	ai: {
+		generate: (prompt: string, existingMarkdown?: string) =>
+			request<{ markdown: string }>('/api/ai/generate', {
+				method: 'POST',
+				body: JSON.stringify({ prompt, existingMarkdown })
+			})
+	},
 	decks: {
 		list: () => request<DeckMeta[]>('/api/decks'),
 		create: (body: { title?: string; markdown?: string } = {}) =>

@@ -106,6 +106,42 @@ async fn start_session(session: &Session, user_id: &str) -> Result<(), Response>
         .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "session error"))
 }
 
+/// Seed the bootstrap admin `root` when the instance has no users yet
+/// (BRIEF-0010). Returns true when a row was actually created.
+///
+/// Called ONLY from `main.rs` startup — deliberately NOT from `init_db()`, so
+/// the integration suite (which calls `init_db` and then relies on "the first
+/// signup is the admin") keeps working unchanged.
+///
+/// `is_builtin_default` records whether the built-in default password was used,
+/// so an operator who supplied `DECKOALA_ROOT_PASSWORD` never sees a bogus
+/// "still on the default password" warning.
+pub async fn seed_root(
+    db: &sqlx::SqlitePool,
+    password: &str,
+    is_builtin_default: bool,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let password_hash = hash_password(password.to_owned())
+        .await
+        .map_err(|_| "failed to hash the root password")?;
+    // Single statement: never overwrites an existing account, and a concurrent
+    // start can't produce two roots.
+    let done = sqlx::query(
+        "INSERT INTO users (id, username, password_hash, is_admin, created_at) \
+         SELECT ?1, 'root', ?2, 1, ?3 WHERE (SELECT COUNT(*) FROM users) = 0",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&password_hash)
+    .bind(now_rfc3339())
+    .execute(db)
+    .await?;
+    let created = done.rows_affected() > 0;
+    if created && is_builtin_default {
+        crate::settings::set(db, crate::settings::ROOT_PW_DEFAULT, "true").await?;
+    }
+    Ok(created)
+}
+
 pub async fn register(
     State(state): State<AppState>,
     session: Session,
@@ -248,6 +284,21 @@ pub async fn logout(session: Session) -> Response {
     }
 }
 
+/// `/me` only — keeping these off `UserDto` leaves the register/login response
+/// shapes untouched, and keeps both flags strictly session-gated (they must
+/// NEVER reach the anonymous `/api/instance`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MeDto {
+    #[serde(flatten)]
+    user: UserDto,
+    /// True while `root` still uses the built-in default password.
+    root_password_is_default: bool,
+    /// The ONLY AI signal a non-admin may read — provider/baseUrl/model stay
+    /// admin-only because they can name internal hosts.
+    ai_enabled: bool,
+}
+
 pub async fn me(State(state): State<AppState>, session: Session) -> Response {
     let user_id: Option<String> = session.get(SESSION_USER_KEY).await.unwrap_or(None);
     let Some(user_id) = user_id else {
@@ -258,8 +309,88 @@ pub async fn me(State(state): State<AppState>, session: Session) -> Response {
         .fetch_optional(&state.db)
         .await
     {
-        Ok(Some(row)) => Json(UserDto::from(&row)).into_response(),
+        Ok(Some(row)) => {
+            // Only an admin (who can act on it) learns that root still has the
+            // default password — it is not useful to, and not for, other users.
+            let is_admin = row.is_admin != 0;
+            let root_password_is_default = is_admin
+                && crate::settings::flag(&state.db, crate::settings::ROOT_PW_DEFAULT).await;
+            Json(MeDto {
+                user: UserDto::from(&row),
+                root_password_is_default,
+                ai_enabled: crate::settings::ai_is_usable(&state.db).await,
+            })
+            .into_response()
+        }
         Ok(None) => json_error(StatusCode::UNAUTHORIZED, "not signed in"),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangePassword {
+    current_password: String,
+    new_password: String,
+}
+
+/// Change the signed-in user's password. Lives here to reuse the private
+/// argon2 helpers. Rotates the current session id; other sessions for the same
+/// user stay valid until they expire (tower-sessions offers no per-user
+/// enumeration — tracked as a deferred hardening).
+pub async fn change_password(
+    State(state): State<AppState>,
+    session: Session,
+    Json(body): Json<ChangePassword>,
+) -> Response {
+    let user_id: Option<String> = session.get(SESSION_USER_KEY).await.unwrap_or(None);
+    let Some(user_id) = user_id else {
+        return json_error(StatusCode::UNAUTHORIZED, "not signed in");
+    };
+    // Same bounds as register: reject oversized input BEFORE argon2.
+    if body.current_password.len() > 128 || body.new_password.len() > 128 {
+        return json_error(StatusCode::UNPROCESSABLE_ENTITY, "password too long");
+    }
+    // Count CHARACTERS, matching register — a byte check would let a 3-glyph
+    // Thai password through (3 bytes each) while register rejects it.
+    if body.new_password.chars().count() < 8 {
+        return json_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "password must be at least 8 characters",
+        );
+    }
+
+    let row = match sqlx::query_as::<_, UserRow>("SELECT * FROM users WHERE id = ?1")
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => return json_error(StatusCode::UNAUTHORIZED, "not signed in"),
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    };
+    if !verify_password(body.current_password, row.password_hash.clone()).await {
+        return json_error(StatusCode::UNAUTHORIZED, "current password is incorrect");
+    }
+
+    let new_hash = match hash_password(body.new_password).await {
+        Ok(hash) => hash,
+        Err(response) => return response,
+    };
+    if sqlx::query("UPDATE users SET password_hash = ?1 WHERE id = ?2")
+        .bind(&new_hash)
+        .bind(&user_id)
+        .execute(&state.db)
+        .await
+        .is_err()
+    {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error");
+    }
+
+    // The default-password warning is about `root` specifically.
+    if row.username.eq_ignore_ascii_case("root") {
+        let _ = crate::settings::remove(&state.db, crate::settings::ROOT_PW_DEFAULT).await;
+    }
+    let _ = session.cycle_id().await;
+    StatusCode::NO_CONTENT.into_response()
 }

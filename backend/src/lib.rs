@@ -1,10 +1,13 @@
+pub mod ai;
 pub mod assets;
 pub mod auth;
 pub mod decks;
 pub mod export;
 pub mod fonts;
+pub mod settings;
 pub mod shares;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use axum::extract::DefaultBodyLimit;
@@ -49,6 +52,11 @@ pub struct AppState {
     /// leaked edit link's cache-busting renders can't starve owner exports
     /// (BRIEF-0008).
     pub share_export_sem: std::sync::Arc<tokio::sync::Semaphore>,
+    /// Bounds concurrent AI generations (BRIEF-0010).
+    pub ai_sem: std::sync::Arc<tokio::sync::Semaphore>,
+    /// Per-user AI throttle: a global semaphore alone would still let one
+    /// signed-in user burn the instance's provider budget.
+    pub ai_last_call: std::sync::Arc<tokio::sync::Mutex<HashMap<String, std::time::Instant>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -320,6 +328,12 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me", get(auth::me))
+        .route("/auth/password", post(auth::change_password))
+        .route(
+            "/admin/settings",
+            get(settings::get_settings).put(settings::put_settings),
+        )
+        .route("/ai/generate", post(ai::generate))
         .route("/decks", get(decks::list).post(decks::create))
         .route(
             "/decks/{id}",

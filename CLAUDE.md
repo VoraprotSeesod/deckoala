@@ -61,6 +61,7 @@ open questions — never silent assumptions.
 | `ลุย BRIEF-0007` | `docs/briefs/BRIEF-0007-font-manager.md` | Font manager: upload + Google Fonts (served locally), deck font picker |
 | `ลุย BRIEF-0008` | `docs/briefs/BRIEF-0008-sharing.md` | Sharing: view/edit share links (`/s/{token}`, anonymous, revocable + expiry) |
 | `ลุย BRIEF-0009` | `docs/briefs/BRIEF-0009-i18n-darkmode.md` | Polish: Thai UI i18n (default Thai + toggle) + app dark mode |
+| `ลุย BRIEF-0010` | `docs/briefs/BRIEF-0010-admin-settings-ai.md` | Admin settings + `root` bootstrap + change-password + AI slide generation |
 
 > If the user says just "ลุย" with no task, build the next unchecked brief. Full roadmap: `docs/design/ARCHITECTURE.md` §8.
 
@@ -70,7 +71,7 @@ open questions — never silent assumptions.
 - **Auth / AuthZ:** cookie sessions, owner-scoped queries, share-link tokens (view/edit)
 - **Storage:** SQLite + files, everything under the `/data` volume only
 - **Deploy / runtime:** single container from one `compose.yml`; Chromium inside the image (`CHROME_BIN`)
-- Cross-cutting invariants from day 1: owner-scoped multi-user, soft delete on decks, UTC RFC3339 timestamps, deck format = standard Marp Markdown (no lock-in), responsive UI (desktop/tablet/mobile) on every page, and: pages served to viewers make **no** external CDN/font requests — the only permitted outbound call is the server-side Google Fonts download inside the font-manager install flow (fonts are then served locally from `/data/fonts`)
+- Cross-cutting invariants from day 1: owner-scoped multi-user, soft delete on decks, UTC RFC3339 timestamps, deck format = standard Marp Markdown (no lock-in), responsive UI (desktop/tablet/mobile) on every page, and: pages served to viewers make **no** external CDN/font requests. Exactly **two** server-side outbound calls are permitted, both made by the Rust server and never by a viewer's browser: (1) the Google Fonts download inside the font-manager install flow (fonts are then served locally from `/data/fonts`), and (2) **the admin-configured LLM endpoint**, called only for an authenticated user's explicit AI-generate request (BRIEF-0010; off by default). Share links, present mode and PDF/print must still issue **zero** external requests
 - Brand: background `#F8F8FF`, ink `#0B1215`; logo at `assets/brand/logo.svg` (+ `logo-dark.svg`)
 
 ## 3. Runtime rules (Docker isolation — MANDATORY)

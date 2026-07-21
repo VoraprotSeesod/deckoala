@@ -29,6 +29,9 @@
 		<div class="session">
 			{#if logoutError}<span class="logout-error" role="alert">{logoutError}</span>{/if}
 			<a class="navlink" href="/app/fonts">{t('nav.fonts')}</a>
+			{#if data.user.isAdmin}
+				<a class="navlink" href="/app/admin">{t('nav.admin')}</a>
+			{/if}
 			<span class="user">{data.user.username}</span>
 			<SettingsToggle />
 			<button onclick={logout}>{t('nav.logout')}</button>

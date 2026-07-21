@@ -46,11 +46,23 @@ curl http://localhost:8321/api/health
 | `DECKOALA_ALLOW_SIGNUP` | `true` | Allow registration. The first account (admin) can always be created |
 | `DECKOALA_SECURE_COOKIE` | `false` | Set `true` on HTTPS deployments to add the `Secure` cookie flag |
 | `DECKOALA_PUBLIC_URL` | — | Public URL (e.g. `https://deckoala.dimenshade.com`); set it when your reverse proxy rewrites the `Host` header, so cross-origin protection accepts your domain |
+| `DECKOALA_ROOT_PASSWORD` | — (built-in `Admin123456@`) | Password for the `root` admin seeded on the **first** start with an empty database. Set it before first start on any reachable instance; otherwise change the default from Admin settings (the app warns until you do) |
 | `CHROME_BIN` | `/usr/bin/chromium` (image) | Chromium binary for PDF export |
 
 ### Accounts
 
-The first account registered on a fresh instance becomes the **admin**. Registration can be closed with `DECKOALA_ALLOW_SIGNUP=false`. Session cookies are HttpOnly/SameSite=Lax; on HTTPS set `DECKOALA_SECURE_COOKIE=true`. Mutating API requests from foreign origins are rejected — if your proxy rewrites `Host`, set `DECKOALA_PUBLIC_URL`.
+A fresh instance seeds a bootstrap admin **`root`** with the password `Admin123456@` (override with `DECKOALA_ROOT_PASSWORD` **before** the first start). The app shows a persistent warning until that default is changed — do it from **Admin settings → Change password**. Seeding only happens when the database is empty and never touches an existing account; if you delete all users, the next account registered becomes the admin instead. Registration can be closed with `DECKOALA_ALLOW_SIGNUP=false`. Session cookies are HttpOnly/SameSite=Lax; on HTTPS set `DECKOALA_SECURE_COOKIE=true`. Mutating API requests from foreign origins are rejected — if your proxy rewrites `Host`, set `DECKOALA_PUBLIC_URL`.
+
+### AI slide generation
+
+Off until an admin configures it in **Admin settings → AI**. Pick a provider (**Anthropic**, or anything
+**OpenAI-compatible** — including a local Ollama / LM Studio base URL), set the model and an API key, then enable it.
+The key is write-only: it is stored on the instance and never returned by the API. With AI on, any signed-in user gets
+an **AI** button in the editor to generate slides from a prompt and append or replace the deck.
+
+Only the **server** ever calls the provider, and only for a signed-in user's explicit request — the AI button is not
+available on anonymous share links. Pages served to viewers (share links, present mode, PDF export) continue to make
+**zero** external requests.
 
 ## Development (native)
 
