@@ -128,12 +128,40 @@ pub async fn export_pdf(
         return json_error(StatusCode::NOT_FOUND, "not found");
     }
     // Owner check BEFORE any Chromium work (so auth tests never launch a browser).
-    let deck: Option<DeckExport> = match sqlx::query_as(
-        "SELECT title, markdown, theme FROM decks \
-         WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
+    let owns: Option<i64> = match sqlx::query_scalar(
+        "SELECT 1 FROM decks WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
     )
     .bind(&id)
     .bind(&user_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(owns) => owns,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    };
+    if owns.is_none() {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    }
+    render_deck_pdf(&state, &id, &state.export_sem).await
+}
+
+/// Render (or serve the cached) PDF for a deck the caller has ALREADY been
+/// authorized to export (owner check or share-token resolve). `sem` bounds
+/// concurrency: the owner path passes `export_sem`, the anonymous share-token
+/// path a separate, tighter `share_export_sem` so a leaked edit link's
+/// cache-busting exports cannot starve owner exports (BRIEF-0008).
+pub(crate) async fn render_deck_pdf(
+    state: &AppState,
+    id: &str,
+    sem: &std::sync::Arc<tokio::sync::Semaphore>,
+) -> Response {
+    if !safe_segment(id) {
+        return json_error(StatusCode::NOT_FOUND, "not found");
+    }
+    let deck: Option<DeckExport> = match sqlx::query_as(
+        "SELECT title, markdown, theme FROM decks WHERE id = ?1 AND deleted_at IS NULL",
+    )
+    .bind(id)
     .fetch_optional(&state.db)
     .await
     {
@@ -150,7 +178,7 @@ pub async fn export_pdf(
     hasher.update(b"\n");
     hasher.update(deck.theme.as_bytes());
     let hash = hex(&hasher.finalize());
-    let dir = state.data_dir.join("exports").join(&id);
+    let dir = state.data_dir.join("exports").join(id);
     let cache_path = dir.join(format!("{hash}.pdf"));
     if let Ok(bytes) = tokio::fs::read(&cache_path).await {
         return pdf_response(bytes, &deck.title);
@@ -158,13 +186,13 @@ pub async fn export_pdf(
 
     // Acquire the permit BEFORE minting the token, so the 120s TTL covers only
     // the browser drive, never the queue wait.
-    let _permit = match state.export_sem.clone().acquire_owned().await {
+    let _permit = match sem.clone().acquire_owned().await {
         Ok(permit) => permit,
         Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "export unavailable"),
     };
-    let token = mint_print_token(&state.print_secret, &id, TOKEN_TTL_SECS);
+    let token = mint_print_token(&state.print_secret, id, TOKEN_TTL_SECS);
 
-    match render_pdf(&state.local_addr, &id, &token).await {
+    match render_pdf(&state.local_addr, id, &token).await {
         Ok(bytes) => {
             // Atomic cache write: a temp file + rename, so an interrupted or
             // concurrent write can never leave a truncated PDF at cache_path

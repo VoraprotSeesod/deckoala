@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api, ApiError, type DeckMeta } from '$lib/api';
+	import ShareManager from '$lib/components/ShareManager.svelte';
 
 	let { data } = $props();
+	let sharingDeckId = $state<string | null>(null);
 	let decks = $state<DeckMeta[]>([]);
 	$effect(() => {
 		decks = data.decks;
@@ -146,6 +148,7 @@
 					<span class="meta">Updated {updatedLabel(deck.updatedAt)}</span>
 					<div class="row">
 						<a class="button" href="/present/{deck.id}">Present</a>
+						<button onclick={() => (sharingDeckId = deck.id)}>Share</button>
 						<button onclick={() => exportPdf(deck)} disabled={pdfBusyId === deck.id}>
 							{pdfBusyId === deck.id ? 'PDF…' : 'PDF'}
 						</button>
@@ -159,6 +162,10 @@
 		</ul>
 	{/if}
 </section>
+
+{#if sharingDeckId}
+	<ShareManager deckId={sharingDeckId} onClose={() => (sharingDeckId = null)} />
+{/if}
 
 <style>
 	section {

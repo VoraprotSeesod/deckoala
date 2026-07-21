@@ -24,6 +24,7 @@ async fn main() {
         print_secret,
         local_addr: deckoala_server::loopback_addr(&config.bind),
         export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
+        share_export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
     };
     let router = app(state, &config.static_dir)
         .await

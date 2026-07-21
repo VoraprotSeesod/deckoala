@@ -43,7 +43,8 @@ async fn deck_is_live(state: &AppState, deck_id: &str) -> Result<bool, Response>
 }
 
 /// Serve authorization: the session owner, OR a valid print cookie for this
-/// deck (so Chromium can load images during PDF export).
+/// deck (so Chromium can load images during PDF export), OR a valid share
+/// cookie for this deck (so an anonymous `/s/{token}` viewer's `<img>` loads).
 async fn authorize_serve(
     state: &AppState,
     session: &Session,
@@ -58,6 +59,15 @@ async fn authorize_serve(
     }
     if print_cookie_authorizes(&state.print_secret, headers, deck_id) {
         return deck_is_live(state, deck_id).await;
+    }
+    // Per-deck share cookie: its token is re-resolved to an ACTIVE share for
+    // exactly this deck on every request, so revocation/expiry take effect at
+    // once (BRIEF-0008). deck_is_live is implied by an active share row.
+    let cookie_name = format!("{}{deck_id}", crate::shares::SHARE_COOKIE_PREFIX);
+    if let Some(token) = crate::export::cookie_value(headers, &cookie_name) {
+        if crate::shares::token_grants_deck(state, &token, deck_id).await {
+            return Ok(true);
+        }
     }
     Ok(false)
 }
@@ -123,7 +133,7 @@ pub async fn upload(
     State(state): State<AppState>,
     AuthUser(user_id): AuthUser,
     Path(deck_id): Path<String>,
-    mut multipart: Multipart,
+    multipart: Multipart,
 ) -> Response {
     // Validate before the path is ever built — even though deck ids are
     // server-minted uuids today, the filesystem path must never be
@@ -137,7 +147,20 @@ pub async fn upload(
         Ok(false) => return not_found(),
         Err(response) => return response,
     }
+    store_asset(&state, &deck_id, multipart).await
+}
 
+/// Store an uploaded image for a deck the caller is ALREADY authorized to edit
+/// (owner, or an edit share token). Shared by the owner upload route and the
+/// share-token asset route.
+pub(crate) async fn store_asset(
+    state: &AppState,
+    deck_id: &str,
+    mut multipart: Multipart,
+) -> Response {
+    if !safe_segment(deck_id) {
+        return not_found();
+    }
     // Pull the `file` field.
     let field = loop {
         match multipart.next_field().await {
@@ -165,7 +188,7 @@ pub async fn upload(
 
     let id = Uuid::new_v4().to_string();
     let filename = format!("{id}.{ext}");
-    let dir: PathBuf = state.data_dir.join("assets").join(&deck_id);
+    let dir: PathBuf = state.data_dir.join("assets").join(deck_id);
     if tokio::fs::create_dir_all(&dir).await.is_err() {
         return json_error(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
     }
@@ -180,7 +203,7 @@ pub async fn upload(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )
     .bind(&id)
-    .bind(&deck_id)
+    .bind(deck_id)
     .bind(&filename)
     .bind(&original_name)
     .bind(mime)

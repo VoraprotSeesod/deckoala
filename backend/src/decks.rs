@@ -274,11 +274,32 @@ pub async fn get_one(
     AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
 ) -> Response {
-    match fetch_deck(&state, &id, &user_id).await {
+    get_deck_core(&state, &id, &user_id).await
+}
+
+/// Read one deck as `owner_id`. Shared by the owner route and the share-token
+/// route (which passes the deck's real owner after the token authorized it).
+pub(crate) async fn get_deck_core(state: &AppState, id: &str, owner_id: &str) -> Response {
+    match fetch_deck(state, id, owner_id).await {
         Ok(Some(row)) => Json(DeckFull::from(row)).into_response(),
         Ok(None) => not_found(),
         Err(response) => response,
     }
+}
+
+/// The owner of a live (non-deleted) deck, or None if it is gone. Used by the
+/// share-token handlers to resolve the owner the reusable cores scope by.
+pub(crate) async fn live_deck_owner(
+    state: &AppState,
+    deck_id: &str,
+) -> Result<Option<String>, Response> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT owner_id FROM decks WHERE id = ?1 AND deleted_at IS NULL",
+    )
+    .bind(deck_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"))
 }
 
 #[derive(Deserialize)]
@@ -297,6 +318,17 @@ pub async fn update(
     AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
     Json(body): Json<UpdateDeck>,
+) -> Response {
+    update_deck_core(&state, &id, &user_id, body).await
+}
+
+/// Apply a deck update as `owner_id` (title/markdown + the revision-snapshot
+/// transaction). Shared by the owner PATCH and the share-token edit route.
+pub(crate) async fn update_deck_core(
+    state: &AppState,
+    id: &str,
+    owner_id: &str,
+    body: UpdateDeck,
 ) -> Response {
     if body.title.is_none() && body.markdown.is_none() {
         return json_error(StatusCode::UNPROCESSABLE_ENTITY, "nothing to update");
@@ -329,9 +361,9 @@ pub async fn update(
     };
     let outcome = update_in_tx(
         &mut tx,
-        &state,
-        &id,
-        &user_id,
+        state,
+        id,
+        owner_id,
         &title,
         &body.markdown,
         body.base_updated_at.as_deref(),
@@ -504,7 +536,11 @@ pub async fn revisions_list(
     AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
 ) -> Response {
-    match fetch_deck(&state, &id, &user_id).await {
+    revisions_list_core(&state, &id, &user_id).await
+}
+
+pub(crate) async fn revisions_list_core(state: &AppState, id: &str, owner_id: &str) -> Response {
+    match fetch_deck(state, id, owner_id).await {
         Ok(Some(_)) => {}
         Ok(None) => return not_found(),
         Err(response) => return response,
@@ -513,7 +549,7 @@ pub async fn revisions_list(
         "SELECT id, created_at, LENGTH(CAST(markdown AS BLOB)) AS size_bytes \
          FROM revisions WHERE deck_id = ?1 ORDER BY created_at DESC, rowid DESC",
     )
-    .bind(&id)
+    .bind(id)
     .fetch_all(&state.db)
     .await
     {
@@ -565,12 +601,21 @@ pub async fn revision_get(
     AuthUser(user_id): AuthUser,
     Path((id, rev_id)): Path<(String, String)>,
 ) -> Response {
-    match fetch_deck(&state, &id, &user_id).await {
+    revision_get_core(&state, &id, &user_id, &rev_id).await
+}
+
+pub(crate) async fn revision_get_core(
+    state: &AppState,
+    id: &str,
+    owner_id: &str,
+    rev_id: &str,
+) -> Response {
+    match fetch_deck(state, id, owner_id).await {
         Ok(Some(_)) => {}
         Ok(None) => return not_found(),
         Err(response) => return response,
     }
-    match fetch_revision(&state.db, &id, &rev_id).await {
+    match fetch_revision(&state.db, id, rev_id).await {
         Ok(Some(row)) => Json(RevisionFull {
             id: row.id,
             created_at: row.created_at,
@@ -587,12 +632,21 @@ pub async fn revision_restore(
     AuthUser(user_id): AuthUser,
     Path((id, rev_id)): Path<(String, String)>,
 ) -> Response {
+    revision_restore_core(&state, &id, &user_id, &rev_id).await
+}
+
+pub(crate) async fn revision_restore_core(
+    state: &AppState,
+    id: &str,
+    owner_id: &str,
+    rev_id: &str,
+) -> Response {
     let now = now_rfc3339();
     let mut tx = match state.db.begin_with("BEGIN IMMEDIATE").await {
         Ok(tx) => tx,
         Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
     };
-    let outcome = restore_in_tx(&mut tx, &id, &user_id, &rev_id, &now).await;
+    let outcome = restore_in_tx(&mut tx, id, owner_id, rev_id, &now).await;
     finish_deck_tx(tx, outcome).await
 }
 
@@ -722,7 +776,13 @@ pub async fn export(
     AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
 ) -> Response {
-    let deck = match fetch_deck(&state, &id, &user_id).await {
+    md_export_core(&state, &id, &user_id).await
+}
+
+/// Markdown download for one deck as `owner_id`. Shared by the owner route and
+/// the share-token `.md` export.
+pub(crate) async fn md_export_core(state: &AppState, id: &str, owner_id: &str) -> Response {
+    let deck = match fetch_deck(state, id, owner_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return not_found(),
         Err(response) => return response,

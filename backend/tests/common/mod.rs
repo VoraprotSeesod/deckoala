@@ -33,6 +33,7 @@ pub async fn test_app_full(
             print_secret: [7u8; 32],
             local_addr: "127.0.0.1:8080".to_owned(),
             export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
+            share_export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
         },
         std::path::Path::new("nonexistent-static"),
     )

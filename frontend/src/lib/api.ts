@@ -77,6 +77,79 @@ export type FontInfo = {
 	createdAt: string;
 };
 
+export type SharePermission = 'view' | 'edit';
+
+export type ShareLink = {
+	id: string;
+	token: string;
+	permission: SharePermission;
+	url: string;
+	createdAt: string;
+	expiresAt: string | null;
+	revokedAt: string | null;
+	status: 'active' | 'revoked' | 'expired';
+};
+
+export type SharedDeck = Deck & { permission: SharePermission };
+
+/** The data source a `<DeckEditor>` talks to — either the owner endpoints
+ * (keyed by deck id) or the share-token endpoints. Lets one editor component
+ * serve both /app/deck/[id] and /s/[token] without knowing which it is. */
+export type EditorAdapter = {
+	update(body: { title?: string; markdown?: string; baseUpdatedAt?: string }): Promise<Deck>;
+	listRevisions(): Promise<RevisionMeta[]>;
+	getRevision(revId: string): Promise<Revision>;
+	restoreRevision(revId: string): Promise<Deck>;
+	uploadAsset(file: File): Promise<UploadedAsset>;
+	downloadPdf(title: string): Promise<void>;
+	exportMdUrl: string;
+};
+
+/** Download a PDF blob from a POST endpoint (shared by owner + share-token). */
+async function downloadPdfFrom(url: string, fallbackTitle: string): Promise<void> {
+	const res = await fetch(url, { method: 'POST' });
+	if (!res.ok) {
+		let message = res.statusText;
+		try {
+			const body = await res.json();
+			if (typeof body?.error === 'string') message = body.error;
+		} catch {
+			// keep statusText
+		}
+		throw new ApiError(res.status, message);
+	}
+	const blob = await res.blob();
+	const disposition = res.headers.get('content-disposition') ?? '';
+	const match = disposition.match(/filename="([^"]+)"/);
+	const filename = match ? match[1] : `${fallbackTitle || 'deck'}.pdf`;
+	const objectUrl = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = objectUrl;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	URL.revokeObjectURL(objectUrl);
+}
+
+/** POST a single file as multipart/form-data and return the parsed JSON. */
+async function uploadFileTo<T>(url: string, file: File): Promise<T> {
+	const form = new FormData();
+	form.append('file', file);
+	const res = await fetch(url, { method: 'POST', body: form });
+	if (!res.ok) {
+		let message = res.statusText;
+		try {
+			const body = await res.json();
+			if (typeof body?.error === 'string') message = body.error;
+		} catch {
+			// keep statusText
+		}
+		throw new ApiError(res.status, message);
+	}
+	return res.json() as Promise<T>;
+}
+
 export const api = {
 	instance: () => request<Instance>('/api/instance'),
 	me: () => request<User>('/api/auth/me'),
@@ -91,31 +164,8 @@ export const api = {
 		duplicate: (id: string) => request<Deck>(`/api/decks/${id}/duplicate`, { method: 'POST' }),
 		exportUrl: (id: string) => `/api/decks/${id}/export`,
 		// Server generates the PDF (headless Chromium — slow); download the blob.
-		downloadPdf: async (id: string, fallbackTitle: string): Promise<void> => {
-			const res = await fetch(`/api/decks/${id}/export/pdf`, { method: 'POST' });
-			if (!res.ok) {
-				let message = res.statusText;
-				try {
-					const body = await res.json();
-					if (typeof body?.error === 'string') message = body.error;
-				} catch {
-					// keep statusText
-				}
-				throw new ApiError(res.status, message);
-			}
-			const blob = await res.blob();
-			const disposition = res.headers.get('content-disposition') ?? '';
-			const match = disposition.match(/filename="([^"]+)"/);
-			const filename = match ? match[1] : `${fallbackTitle || 'deck'}.pdf`;
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = filename;
-			document.body.appendChild(a);
-			a.click();
-			a.remove();
-			URL.revokeObjectURL(url);
-		}
+		downloadPdf: (id: string, fallbackTitle: string) =>
+			downloadPdfFrom(`/api/decks/${id}/export/pdf`, fallbackTitle)
 	},
 	fonts: {
 		list: () => request<FontInfo[]>('/api/fonts'),
@@ -166,25 +216,37 @@ export const api = {
 	assets: {
 		// FormData sets its own multipart Content-Type/boundary — do NOT pass
 		// a JSON content-type header here.
-		upload: async (deckId: string, file: File): Promise<UploadedAsset> => {
-			const form = new FormData();
-			form.append('file', file);
-			const response = await fetch(`/api/decks/${deckId}/assets`, {
+		upload: (deckId: string, file: File) =>
+			uploadFileTo<UploadedAsset>(`/api/decks/${deckId}/assets`, file)
+	},
+	// Owner-side share-link management for a deck.
+	shares: {
+		list: (deckId: string) => request<ShareLink[]>(`/api/decks/${deckId}/shares`),
+		create: (deckId: string, permission: SharePermission, expiresAt?: string | null) =>
+			request<ShareLink>(`/api/decks/${deckId}/shares`, {
 				method: 'POST',
-				body: form
-			});
-			if (!response.ok) {
-				let message = response.statusText;
-				try {
-					const body = await response.json();
-					if (typeof body?.error === 'string') message = body.error;
-				} catch {
-					// keep statusText
-				}
-				throw new ApiError(response.status, message);
-			}
-			return response.json() as Promise<UploadedAsset>;
-		}
+				body: JSON.stringify({ permission, expiresAt: expiresAt ?? null })
+			}),
+		revoke: (deckId: string, shareId: string) =>
+			request<void>(`/api/decks/${deckId}/shares/${shareId}`, { method: 'DELETE' })
+	},
+	// Token-scoped access for a share-link recipient (no account).
+	shared: {
+		get: (token: string) => request<SharedDeck>(`/api/s/${token}`),
+		update: (token: string, body: { title?: string; markdown?: string; baseUpdatedAt?: string }) =>
+			request<Deck>(`/api/s/${token}`, { method: 'PATCH', body: JSON.stringify(body) }),
+		revisions: {
+			list: (token: string) => request<RevisionMeta[]>(`/api/s/${token}/revisions`),
+			get: (token: string, revId: string) =>
+				request<Revision>(`/api/s/${token}/revisions/${revId}`),
+			restore: (token: string, revId: string) =>
+				request<Deck>(`/api/s/${token}/revisions/${revId}/restore`, { method: 'POST' })
+		},
+		uploadAsset: (token: string, file: File) =>
+			uploadFileTo<UploadedAsset>(`/api/s/${token}/assets`, file),
+		exportMdUrl: (token: string) => `/api/s/${token}/export`,
+		downloadPdf: (token: string, fallbackTitle: string) =>
+			downloadPdfFrom(`/api/s/${token}/export/pdf`, fallbackTitle)
 	},
 	register: (username: string, password: string) =>
 		request<User>('/api/auth/register', {
@@ -198,3 +260,29 @@ export const api = {
 		}),
 	logout: () => request<void>('/api/auth/logout', { method: 'POST' })
 };
+
+/** Editor adapter bound to a deck the caller owns (session-scoped endpoints). */
+export function ownerAdapter(deckId: string): EditorAdapter {
+	return {
+		update: (body) => api.decks.update(deckId, body),
+		listRevisions: () => api.revisions.list(deckId),
+		getRevision: (revId) => api.revisions.get(deckId, revId),
+		restoreRevision: (revId) => api.revisions.restore(deckId, revId),
+		uploadAsset: (file) => api.assets.upload(deckId, file),
+		downloadPdf: (title) => api.decks.downloadPdf(deckId, title),
+		exportMdUrl: api.decks.exportUrl(deckId)
+	};
+}
+
+/** Editor adapter bound to a share token (anonymous, token-scoped endpoints). */
+export function sharedAdapter(token: string): EditorAdapter {
+	return {
+		update: (body) => api.shared.update(token, body),
+		listRevisions: () => api.shared.revisions.list(token),
+		getRevision: (revId) => api.shared.revisions.get(token, revId),
+		restoreRevision: (revId) => api.shared.revisions.restore(token, revId),
+		uploadAsset: (file) => api.shared.uploadAsset(token, file),
+		downloadPdf: (title) => api.shared.downloadPdf(token, title),
+		exportMdUrl: api.shared.exportMdUrl(token)
+	};
+}

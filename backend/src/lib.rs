@@ -3,6 +3,7 @@ pub mod auth;
 pub mod decks;
 pub mod export;
 pub mod fonts;
+pub mod shares;
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +45,10 @@ pub struct AppState {
     pub local_addr: String,
     /// Bounds concurrent Chromium exports so a burst can't exhaust memory.
     pub export_sem: std::sync::Arc<tokio::sync::Semaphore>,
+    /// Separate, tighter bound for ANONYMOUS share-token PDF exports, so a
+    /// leaked edit link's cache-busting renders can't starve owner exports
+    /// (BRIEF-0008).
+    pub share_export_sem: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Debug, Clone)]
@@ -335,6 +340,33 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
             post(decks::revision_restore),
         )
         .route("/decks/{id}/export/pdf", post(export::export_pdf))
+        .route(
+            "/decks/{id}/shares",
+            get(shares::list_shares).post(shares::create_share),
+        )
+        .route(
+            "/decks/{id}/shares/{share_id}",
+            axum::routing::delete(shares::revoke_share),
+        )
+        .route(
+            "/s/{token}",
+            get(shares::shared_get).patch(shares::shared_update),
+        )
+        .route("/s/{token}/revisions", get(shares::shared_revisions_list))
+        .route(
+            "/s/{token}/revisions/{rev_id}",
+            get(shares::shared_revision_get),
+        )
+        .route(
+            "/s/{token}/revisions/{rev_id}/restore",
+            post(shares::shared_revision_restore),
+        )
+        .route(
+            "/s/{token}/assets",
+            post(shares::shared_asset_upload).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        .route("/s/{token}/export/pdf", post(shares::shared_export_pdf))
+        .route("/s/{token}/export", get(shares::shared_export_md))
         .route("/print/{id}", get(export::print_data))
         .route(
             "/fonts",
@@ -383,12 +415,20 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
              base-uri 'self'; frame-ancestors 'self'",
         ),
     );
+    // The share token is a bearer secret in the URL path (`/s/{token}`); keep
+    // it out of any Referer header (defense-in-depth — CSP already blocks
+    // external subresource loads that could carry one).
+    let referrer = SetResponseHeaderLayer::overriding(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     Ok(Router::new()
         .nest("/api", api)
         .merge(assets_router)
         .merge(fonts_router)
         .fallback_service(spa)
-        .layer(csp))
+        .layer(csp)
+        .layer(referrer))
 }
 
 /// Exit code for the Docker HEALTHCHECK: GET /api/health on the local port,
