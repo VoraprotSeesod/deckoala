@@ -2,6 +2,7 @@
 	import DeckEditor from '$lib/components/DeckEditor.svelte';
 	import ShareManager from '$lib/components/ShareManager.svelte';
 	import { ownerAdapter } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
 
 	let { data } = $props();
 
@@ -16,13 +17,13 @@
 	deck={data.deck}
 	{adapter}
 	backHref="/app"
-	backLabel="← Decks"
+	backLabel={t('editor.backDecks')}
 	{presentHref}
 	extra={shareButton}
 />
 
 {#snippet shareButton()}
-	<button class="share-btn" onclick={() => (shareOpen = true)}>Share</button>
+	<button class="share-btn" onclick={() => (shareOpen = true)}>{t('dash.share')}</button>
 {/snippet}
 
 {#if shareOpen}

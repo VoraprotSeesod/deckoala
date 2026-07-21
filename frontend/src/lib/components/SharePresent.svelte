@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { renderDeck } from '$lib/marp';
+	import { t } from '$lib/i18n.svelte';
 
 	// Audience-only fullscreen presentation for a shared deck (no presenter view,
 	// no cross-window sync — the recipient just clicks through). Reuses the same
@@ -160,15 +161,15 @@
 
 {#if slideCount === 0}
 	<div class="empty">
-		<p>This deck has no slides.</p>
-		<button class="btn" onclick={onExit}>Close</button>
+		<p>{t('present.noSlides')}</p>
+		<button class="btn" onclick={onExit}>{t('present.close')}</button>
 	</div>
 {:else}
 	<div
 		class="audience"
 		bind:this={rootEl}
 		role="application"
-		aria-label="Slide presentation"
+		aria-label={t('present.slideRegion')}
 		tabindex="-1"
 		onpointermove={pokeControls}
 		ontouchstart={(e) => {
@@ -179,7 +180,7 @@
 	>
 		<div class="stage" bind:this={stageHost}></div>
 		<div class="bar" class:hidden={!controlsVisible}>
-			<button class="btn" onclick={onExit}>Exit</button>
+			<button class="btn" onclick={onExit}>{t('present.exit')}</button>
 			<span class="counter">{index + 1} / {slideCount}</span>
 			<span class="spacer"></span>
 			<button class="btn" onclick={(e) => (go(index - 1), blurTarget(e))} disabled={index === 0}>‹</button>
@@ -189,7 +190,7 @@
 				disabled={index + 1 >= slideCount}>›</button
 			>
 			<button class="btn" onclick={(e) => (toggleFullscreen(), blurTarget(e))}>
-				{isFullscreen ? 'Windowed' : 'Fullscreen'}
+				{isFullscreen ? t('present.windowed') : t('present.fullscreen')}
 			</button>
 		</div>
 	</div>

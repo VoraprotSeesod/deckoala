@@ -4,16 +4,53 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { EditorView, basicSetup } from 'codemirror';
 	import { markdown as markdownLang } from '@codemirror/lang-markdown';
+	import { Compartment } from '@codemirror/state';
+	import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+	import { tags } from '@lezer/highlight';
 	import 'katex/dist/katex.min.css';
 	import { renderDeck } from '$lib/marp';
 	import { reorderSlides } from '$lib/slides';
 	import { ApiError, type EditorAdapter, type RevisionMeta } from '$lib/api';
+	import { t, formatDate, formatTime, settings } from '$lib/i18n.svelte';
+
+	// CodeMirror carries no dark theme by default, so in the app's dark mode its
+	// gutter/caret/syntax colours stay light-tuned on the dark surface. Swap a
+	// dark theme + highlight in via a Compartment, reconfigured on theme toggle.
+	const cmDarkHighlight = HighlightStyle.define([
+		{ tag: tags.heading, color: '#9db8ff', fontWeight: 'bold' },
+		{ tag: tags.strong, fontWeight: 'bold', color: '#e7ebef' },
+		{ tag: tags.emphasis, fontStyle: 'italic' },
+		{ tag: [tags.link, tags.url], color: '#7fb0ff' },
+		{ tag: tags.monospace, color: '#8fe3a8' },
+		{ tag: [tags.keyword, tags.tagName, tags.propertyName], color: '#c9a6f5' },
+		{ tag: tags.string, color: '#8fe3a8' },
+		{ tag: [tags.comment, tags.quote], color: '#7f8c9a', fontStyle: 'italic' },
+		{ tag: [tags.meta, tags.processingInstruction, tags.labelName], color: '#9aa7b5' }
+	]);
+	const cmDarkTheme = EditorView.theme(
+		{
+			'&': { color: '#e7ebef' },
+			'.cm-content': { caretColor: '#e7ebef' },
+			'.cm-cursor, .cm-dropCursor': { borderLeftColor: '#e7ebef' },
+			'.cm-gutters': { backgroundColor: 'transparent', color: '#66727f', border: 'none' },
+			'.cm-activeLine': { backgroundColor: 'rgba(255, 255, 255, 0.045)' },
+			'.cm-activeLineGutter': { backgroundColor: 'rgba(255, 255, 255, 0.045)', color: '#aab4c0' },
+			'.cm-selectionBackground, &.cm-focused .cm-selectionBackground, .cm-content ::selection': {
+				backgroundColor: 'rgba(125, 160, 255, 0.28)'
+			},
+			'.cm-selectionMatch': { backgroundColor: 'rgba(125, 160, 255, 0.18)' }
+		},
+		{ dark: true }
+	);
+	const cmTheme = new Compartment();
+	const cmThemeExt = (theme: string) =>
+		theme === 'dark' ? [cmDarkTheme, syntaxHighlighting(cmDarkHighlight)] : [];
 
 	let {
 		deck,
 		adapter,
 		backHref,
-		backLabel = '← Back',
+		backLabel,
 		presentHref,
 		onPresent,
 		banner,
@@ -30,6 +67,8 @@
 		/** Optional owner-only controls rendered in the top bar (e.g. Share). */
 		extra?: Snippet;
 	} = $props();
+
+	const back = $derived(backLabel ?? t('editor.backDecks'));
 
 	// --- server-state baselines (the editor owns this state after mount) ---
 	// svelte-ignore state_referenced_locally
@@ -53,7 +92,7 @@
 			currentMarkdown = deck.markdown;
 			dirty = false;
 			saveStatus = 'saved';
-			savedAt = '';
+			savedAtMs = null;
 			viewingRevision = null;
 			panelOpen = false;
 			revisions = [];
@@ -68,7 +107,9 @@
 	// --- save state ---
 	type SaveStatus = 'saved' | 'dirty' | 'saving' | 'error';
 	let saveStatus = $state<SaveStatus>('saved');
-	let savedAt = $state('');
+	// Store the save INSTANT (ms), not a pre-formatted string, so the displayed
+	// time re-formats when the locale toggles (formatTime runs in the template).
+	let savedAtMs = $state<number | null>(null);
 	let saveEpoch = 0; // bumped on restore/deck-switch: older saves are void
 	let savingInFlight = false;
 	let inFlightSave: Promise<void> | null = null;
@@ -114,7 +155,7 @@
 		try {
 			await adapter.downloadPdf(title);
 		} catch (e) {
-			errorMsg = e instanceof ApiError ? e.message : 'PDF export failed.';
+			errorMsg = e instanceof ApiError ? e.message : t('editor.pdfFailed');
 		} finally {
 			pdfBusy = false;
 		}
@@ -144,7 +185,7 @@
 			shadow.innerHTML = html;
 			railNonce += 1; // triggers the rail effect once the DOM has flushed
 		} catch {
-			shadow.innerHTML = `<p style="opacity:.7">Preview failed to render.</p>`;
+			shadow.innerHTML = `<p style="opacity:.7">${t('editor.previewFailed')}</p>`;
 		}
 	}
 
@@ -171,6 +212,13 @@
 		railNonce;
 		slideCount;
 		renderRail();
+	});
+
+	// Re-theme CodeMirror when the app theme toggles (the initial theme is set
+	// in the extensions at creation).
+	$effect(() => {
+		const theme = settings.theme;
+		view?.dispatch({ effects: cmTheme.reconfigure(cmThemeExt(theme)) });
 	});
 
 	/** Apply a programmatic content change (reorder / image insert) AND run the
@@ -244,7 +292,7 @@
 			}
 		} catch (e) {
 			if (deckId === id) {
-				errorMsg = e instanceof ApiError ? e.message : 'Image upload failed.';
+				errorMsg = e instanceof ApiError ? e.message : t('editor.imageUploadFailed');
 			}
 		} finally {
 			uploading = false;
@@ -307,7 +355,7 @@
 			if (currentMarkdown === content) {
 				dirty = false;
 				saveStatus = 'saved';
-				savedAt = new Date().toLocaleTimeString();
+				savedAtMs = Date.now();
 			} else {
 				saveStatus = 'dirty';
 				scheduleSave();
@@ -356,7 +404,7 @@
 			baseline = updated.updatedAt;
 		} catch (e) {
 			if (epoch !== saveEpoch) return;
-			errorMsg = e instanceof ApiError ? e.message : 'Rename failed.';
+			errorMsg = e instanceof ApiError ? e.message : t('editor.renameFailed');
 			title = serverTitle;
 		}
 	}
@@ -370,7 +418,7 @@
 		try {
 			revisions = await adapter.listRevisions();
 		} catch {
-			errorMsg = 'Could not load revisions.';
+			errorMsg = t('editor.revisionsLoadFailed');
 		}
 	}
 
@@ -381,7 +429,7 @@
 			mobileTab = 'preview';
 			renderPreview();
 		} catch {
-			errorMsg = 'Could not load that revision.';
+			errorMsg = t('editor.revisionLoadFailed');
 		}
 	}
 
@@ -392,7 +440,7 @@
 
 	async function restoreRevision() {
 		if (!viewingRevision) return;
-		if (!confirm('Restore this version? Your current content is snapshotted first.')) return;
+		if (!confirm(t('editor.restoreConfirm'))) return;
 		// Cancel the pending autosave and void any in-flight PATCH.
 		if (saveTimer) clearTimeout(saveTimer);
 		saveTimer = null;
@@ -412,13 +460,13 @@
 			currentMarkdown = updated.markdown;
 			dirty = false;
 			saveStatus = 'saved';
-			savedAt = new Date().toLocaleTimeString();
+			savedAtMs = Date.now();
 			viewingRevision = null;
 			setEditorContent(updated.markdown);
 			renderPreview();
 			await refreshRevisions();
 		} catch (e) {
-			errorMsg = e instanceof ApiError ? e.message : 'Restore failed.';
+			errorMsg = e instanceof ApiError ? e.message : t('editor.restoreFailed');
 			if (dirty) scheduleSave();
 		}
 	}
@@ -436,7 +484,7 @@
 	beforeNavigate((navigation) => {
 		if (!dirty && !savingInFlight) return;
 		if (saveStatus === 'error') {
-			if (!confirm('Your latest changes could not be saved. Leave anyway?')) {
+			if (!confirm(t('editor.leaveUnsaved'))) {
 				navigation.cancel();
 			}
 			return;
@@ -473,6 +521,7 @@
 				basicSetup,
 				markdownLang(),
 				EditorView.lineWrapping,
+				cmTheme.of(cmThemeExt(settings.theme)),
 				EditorView.updateListener.of((update) => {
 					if (update.docChanged) onDocChange(update.state.doc.toString());
 				})
@@ -507,7 +556,7 @@
 <article>
 	{#if banner}<p class="banner">{banner}</p>{/if}
 	<div class="topbar">
-		<a class="button" href={backHref}>{backLabel}</a>
+		<a class="button" href={backHref}>{back}</a>
 		<input
 			class="title"
 			bind:value={title}
@@ -515,33 +564,33 @@
 			onkeydown={(e) => {
 				if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
 			}}
-			aria-label="Deck title"
+			aria-label={t('editor.deckTitle')}
 		/>
 		<span class="status" data-status={saveStatus}>
-			{#if saveStatus === 'saving'}Saving…
-			{:else if saveStatus === 'dirty'}Unsaved changes
-			{:else if saveStatus === 'error'}Save failed — retrying
-			{:else if savedAt}Saved {savedAt}
-			{:else}Saved{/if}
+			{#if saveStatus === 'saving'}{t('editor.saving')}
+			{:else if saveStatus === 'dirty'}{t('editor.unsaved')}
+			{:else if saveStatus === 'error'}{t('editor.saveFailed')}
+			{:else if savedAtMs}{t('editor.savedAt', { when: formatTime(savedAtMs) })}
+			{:else}{t('editor.saved')}{/if}
 		</span>
-		<span class="slides">{slideCount} slide{slideCount === 1 ? '' : 's'}</span>
+		<span class="slides">{t('editor.slides', { n: slideCount })}</span>
 		{#if presentHref}
-			<a class="button" href={presentHref}>Present</a>
+			<a class="button" href={presentHref}>{t('editor.present')}</a>
 		{:else if onPresent}
-			<button class="button" onclick={() => onPresent?.(currentMarkdown)}>Present</button>
+			<button class="button" onclick={() => onPresent?.(currentMarkdown)}>{t('editor.present')}</button>
 		{/if}
 		<button class="button" onclick={exportPdf} disabled={pdfBusy}>
-			{pdfBusy ? 'Generating…' : 'PDF'}
+			{pdfBusy ? t('editor.pdfBusy') : t('editor.pdf')}
 		</button>
-		<a class="button" href={adapter.exportMdUrl} download>Export .md</a>
-		<button class="button" class:active={panelOpen} onclick={togglePanel}>Revisions</button>
+		<a class="button" href={adapter.exportMdUrl} download>{t('editor.exportMd')}</a>
+		<button class="button" class:active={panelOpen} onclick={togglePanel}>{t('editor.revisions')}</button>
 		{@render extra?.()}
 	</div>
 
 	{#if errorMsg}<p class="error" role="alert">{errorMsg}</p>{/if}
 
 	{#if slideCount > 0}
-		<div class="rail" role="listbox" aria-label="Slides">
+		<div class="rail" role="listbox" aria-label={t('editor.slidesRail')}>
 			{#each Array(slideCount) as _, i (i)}
 				<div
 					class="thumb"
@@ -551,7 +600,7 @@
 					role="option"
 					aria-selected={i === activeSlide}
 					tabindex="0"
-					title={viewingRevision ? 'Reordering is disabled while viewing a revision' : 'Drag to reorder'}
+					title={viewingRevision ? t('editor.reorderDisabled') : t('editor.reorderHint')}
 					ondragstart={() => (dragFrom = i)}
 					ondragend={() => (dragFrom = null)}
 					ondragover={(e) => e.preventDefault()}
@@ -572,25 +621,27 @@
 	{/if}
 
 	<div class="tabs">
-		<button class:active={mobileTab === 'write'} onclick={() => (mobileTab = 'write')}>Write</button>
+		<button class:active={mobileTab === 'write'} onclick={() => (mobileTab = 'write')}>
+			{t('editor.write')}
+		</button>
 		<button class:active={mobileTab === 'preview'} onclick={() => (mobileTab = 'preview')}>
-			Preview
+			{t('editor.preview')}
 		</button>
 	</div>
 
 	<div class="workspace" class:panel-open={panelOpen}>
 		<div class="editor" class:drop-active={dropActive} data-tab-active={mobileTab === 'write'}>
 			<div class="cm-host" bind:this={editorContainer}></div>
-			{#if dropActive}<div class="drop-hint">Drop image to upload</div>{/if}
-			{#if uploading}<div class="upload-hint">Uploading…</div>{/if}
+			{#if dropActive}<div class="drop-hint">{t('editor.dropImage')}</div>{/if}
+			{#if uploading}<div class="upload-hint">{t('editor.uploading')}</div>{/if}
 		</div>
 		<div class="preview" data-tab-active={mobileTab === 'preview'}>
 			{#if viewingRevision}
 				<div class="revision-banner">
-					Viewing revision from {new Date(viewingRevision.createdAt).toLocaleString()}
+					{t('editor.viewingRevision', { when: formatDate(viewingRevision.createdAt) })}
 					<span>
-						<button onclick={restoreRevision}>Restore this version</button>
-						<button onclick={backToCurrent}>Back to current</button>
+						<button onclick={restoreRevision}>{t('editor.restoreThis')}</button>
+						<button onclick={backToCurrent}>{t('editor.backToCurrent')}</button>
 					</span>
 				</div>
 			{/if}
@@ -598,9 +649,9 @@
 		</div>
 		{#if panelOpen}
 			<aside class="revisions">
-				<h2>Revisions</h2>
+				<h2>{t('editor.revisionsHeading')}</h2>
 				{#if revisions.length === 0}
-					<p class="hint">No snapshots yet — they appear as you keep editing.</p>
+					<p class="hint">{t('editor.noSnapshots')}</p>
 				{:else}
 					<ul>
 						{#each revisions as rev (rev.id)}
@@ -609,7 +660,7 @@
 									class:selected={viewingRevision?.id === rev.id}
 									onclick={() => viewRevision(rev)}
 								>
-									{new Date(rev.createdAt).toLocaleString()}
+									{formatDate(rev.createdAt)}
 									<small>{sizeLabel(rev.sizeBytes)}</small>
 								</button>
 							</li>
@@ -663,7 +714,7 @@
 	.title:hover,
 	.title:focus {
 		border-color: color-mix(in srgb, var(--dk-ink) 25%, transparent);
-		background: #fff;
+		background: var(--dk-surface);
 		outline: none;
 	}
 
@@ -674,7 +725,7 @@
 	}
 
 	.status[data-status='error'] {
-		color: #b3261e;
+		color: var(--dk-danger);
 		opacity: 1;
 	}
 
@@ -703,7 +754,7 @@
 	}
 
 	.error {
-		color: #b3261e;
+		color: var(--dk-danger);
 		margin: 0;
 	}
 
@@ -757,7 +808,9 @@
 		border-radius: 0.4rem;
 		overflow: hidden;
 		cursor: grab;
-		background: #fff;
+		/* A thumbnail is a slide surface, not app chrome — keep it light-branded
+		   in both themes (the marp <section> edges are transparent). */
+		background: #f8f8ff;
 	}
 
 	.thumb.active {
@@ -795,7 +848,7 @@
 		overflow: auto;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
 		border-radius: 0.75rem;
-		background: #fff;
+		background: var(--dk-surface);
 	}
 
 	.editor.drop-active {
@@ -845,9 +898,10 @@
 		flex-wrap: wrap;
 		padding: 0.5rem 0.75rem;
 		margin-bottom: 0.75rem;
-		border: 1.5px solid #b3862d;
+		border: 1.5px solid var(--dk-warn);
 		border-radius: 0.5rem;
-		background: #fdf4dd;
+		background: var(--dk-warn-bg);
+		color: var(--dk-warn-ink);
 		font-size: 0.9rem;
 	}
 
@@ -856,9 +910,10 @@
 		font-size: 0.8rem;
 		font-weight: 600;
 		padding: 0.25rem 0.55rem;
-		border: 1.5px solid var(--dk-ink);
+		border: 1.5px solid var(--dk-warn);
 		border-radius: 0.4rem;
 		background: transparent;
+		color: var(--dk-warn-ink);
 		cursor: pointer;
 	}
 
@@ -866,7 +921,7 @@
 		overflow: auto;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
 		border-radius: 0.75rem;
-		background: #fff;
+		background: var(--dk-surface);
 		padding: 0.75rem;
 	}
 

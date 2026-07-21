@@ -60,6 +60,7 @@ open questions — never silent assumptions.
 | `ลุย BRIEF-0006` | `docs/briefs/BRIEF-0006-pdf-export.md` | PDF export via headless Chromium (chromiumoxide + print view + token) |
 | `ลุย BRIEF-0007` | `docs/briefs/BRIEF-0007-font-manager.md` | Font manager: upload + Google Fonts (served locally), deck font picker |
 | `ลุย BRIEF-0008` | `docs/briefs/BRIEF-0008-sharing.md` | Sharing: view/edit share links (`/s/{token}`, anonymous, revocable + expiry) |
+| `ลุย BRIEF-0009` | `docs/briefs/BRIEF-0009-i18n-darkmode.md` | Polish: Thai UI i18n (default Thai + toggle) + app dark mode |
 
 > If the user says just "ลุย" with no task, build the next unchecked brief. Full roadmap: `docs/design/ARCHITECTURE.md` §8.
 

@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { api, ApiError, type Instance } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
+	import SettingsToggle from '$lib/components/SettingsToggle.svelte';
 
 	type Mode = 'first-run' | 'login' | 'register';
 
@@ -24,7 +26,7 @@
 			instance = await api.instance();
 			mode = instance.hasUsers ? 'login' : 'first-run';
 		} catch {
-			error = 'Could not reach the server.';
+			error = t('login.serverUnreachable');
 		}
 	});
 
@@ -40,7 +42,7 @@
 			}
 			goto('/app');
 		} catch (e) {
-			error = e instanceof ApiError ? e.message : 'Something went wrong.';
+			error = e instanceof ApiError ? e.message : t('common.somethingWrong');
 		} finally {
 			busy = false;
 		}
@@ -48,23 +50,25 @@
 </script>
 
 <svelte:head>
-	<title>Sign in — Deckoala</title>
+	<title>{t('login.signIn')} — Deckoala</title>
 </svelte:head>
+
+<div class="corner"><SettingsToggle /></div>
 
 <main>
 	<form class="card" onsubmit={submit}>
 		<img src="/logo.svg" alt="" width="72" height="72" />
 		<h1>
-			{#if mode === 'first-run'}Create the first account
-			{:else if mode === 'register'}Create an account
-			{:else}Sign in to Deckoala{/if}
+			{#if mode === 'first-run'}{t('login.firstRunTitle')}
+			{:else if mode === 'register'}{t('login.registerTitle')}
+			{:else}{t('login.loginTitle')}{/if}
 		</h1>
 		{#if mode === 'first-run'}
-			<p class="note">This instance has no users yet — this account becomes the admin.</p>
+			<p class="note">{t('login.firstRunNote')}</p>
 		{/if}
 
 		<label>
-			Username
+			{t('login.username')}
 			<input
 				name="username"
 				bind:value={username}
@@ -72,12 +76,12 @@
 				autocapitalize="none"
 				spellcheck="false"
 				pattern="[A-Za-z0-9_\-]{'{'}3,32{'}'}"
-				title="3-32 characters: a-z, 0-9, _ or - (case doesn't matter)"
+				title={t('login.usernameHint')}
 				required
 			/>
 		</label>
 		<label>
-			Password
+			{t('login.password')}
 			<input
 				name="password"
 				type="password"
@@ -91,17 +95,17 @@
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 
 		<button type="submit" disabled={busy}>
-			{#if mode === 'login'}Sign in{:else}Create account{/if}
+			{#if mode === 'login'}{t('login.signIn')}{:else}{t('login.register')}{/if}
 		</button>
 
 		{#if instance?.hasUsers}
 			{#if mode === 'login' && instance.allowSignup}
 				<p class="swap">
-					No account? <a href="/login" onclick={(e) => { e.preventDefault(); mode = 'register'; error = ''; }}>Create one</a>
+					{t('login.noAccount')} <a href="/login" onclick={(e) => { e.preventDefault(); mode = 'register'; error = ''; }}>{t('login.createOne')}</a>
 				</p>
 			{:else if mode === 'register'}
 				<p class="swap">
-					Have an account? <a href="/login" onclick={(e) => { e.preventDefault(); mode = 'login'; error = ''; }}>Sign in</a>
+					{t('login.haveAccountQ')} <a href="/login" onclick={(e) => { e.preventDefault(); mode = 'login'; error = ''; }}>{t('login.signIn')}</a>
 				</p>
 			{/if}
 		{/if}
@@ -109,6 +113,12 @@
 </main>
 
 <style>
+	.corner {
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
+	}
+
 	main {
 		min-height: 100dvh;
 		display: flex;
@@ -156,7 +166,7 @@
 		padding: 0.6rem 0.75rem;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 25%, transparent);
 		border-radius: 0.5rem;
-		background: #fff;
+		background: var(--dk-surface);
 		color: var(--dk-ink);
 	}
 
@@ -183,7 +193,7 @@
 
 	.error {
 		margin: 0;
-		color: #b3261e;
+		color: var(--dk-danger);
 		font-size: 0.95rem;
 	}
 

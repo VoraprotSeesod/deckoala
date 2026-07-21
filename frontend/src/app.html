@@ -5,6 +5,24 @@
 		<link rel="icon" href="%sveltekit.assets%/logo.svg" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="theme-color" content="#F8F8FF" />
+		<!-- Apply saved language + theme BEFORE first paint so there is no
+		     light→dark flash (BRIEF-0009). Inline is allowed by the app's CSP
+		     (script-src 'self' 'unsafe-inline'); do NOT add a nonce/hash. -->
+		<script>
+			(function () {
+				try {
+					var l = localStorage.getItem('deckoala-locale');
+					document.documentElement.lang = l === 'en' || l === 'th' ? l : 'th';
+					var t = localStorage.getItem('deckoala-theme');
+					if (t !== 'light' && t !== 'dark') {
+						t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+					}
+					document.documentElement.dataset.theme = t;
+					var m = document.querySelector('meta[name="theme-color"]');
+					if (m) m.setAttribute('content', t === 'dark' ? '#0f141a' : '#F8F8FF');
+				} catch (e) {}
+			})();
+		</script>
 		<!-- Installed fonts, served locally (BRIEF-0007). Registered at document
 		     level so @font-face reaches the shadow-DOM slide renders + print. -->
 		<link rel="stylesheet" href="/api/fonts.css" data-deckoala-fonts />

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { api, ApiError, type FontInfo } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -21,7 +22,7 @@
 	let gWeights = $state('400, 700');
 
 	function fail(e: unknown) {
-		errorMsg = e instanceof ApiError ? e.message : 'Something went wrong.';
+		errorMsg = e instanceof ApiError ? e.message : t('common.somethingWrong');
 	}
 
 	async function refresh() {
@@ -67,7 +68,12 @@
 	}
 
 	async function remove(font: FontInfo) {
-		if (!confirm(`Remove ${font.family} ${font.weight} ${font.style}?`)) return;
+		if (
+			!confirm(
+				t('fonts.removeConfirm', { family: font.family, weight: font.weight, style: font.style })
+			)
+		)
+			return;
 		errorMsg = '';
 		try {
 			await api.fonts.remove(font.id);
@@ -89,17 +95,17 @@
 </script>
 
 <svelte:head>
-	<title>Fonts — Deckoala</title>
+	<title>{t('fonts.title')} — Deckoala</title>
 </svelte:head>
 
 <section>
 	<div class="head">
-		<h1>Fonts</h1>
-		<a class="button" href="/app">← Decks</a>
+		<h1>{t('fonts.title')}</h1>
+		<a class="button" href="/app">{t('fonts.decksLink')}</a>
 	</div>
 	<p class="hint">
-		Installed fonts are served from this instance (no external CDN). Use one in a deck via a Marp
-		<code>style</code> directive, e.g. <code>style: | section &#123; font-family: 'Sarabun'; &#125;</code>.
+		{t('fonts.hint')}
+		<code>style: | section &#123; font-family: 'Sarabun'; &#125;</code>
 	</p>
 
 	{#if errorMsg}<p class="error" role="alert">{errorMsg}</p>{/if}
@@ -107,42 +113,42 @@
 	{#if isAdmin}
 		<div class="forms">
 			<form onsubmit={submitUpload}>
-				<h2>Upload a font</h2>
-				<label>Family <input bind:value={upFamily} required placeholder="My Font" /></label>
+				<h2>{t('fonts.uploadHeading')}</h2>
+				<label>{t('fonts.family')} <input bind:value={upFamily} required placeholder="My Font" /></label>
 				<div class="row">
-					<label>Weight
+					<label>{t('fonts.weight')}
 						<select bind:value={upWeight}>
 							{#each ['100', '200', '300', '400', '500', '600', '700', '800', '900'] as w (w)}
 								<option value={w}>{w}</option>
 							{/each}
 						</select>
 					</label>
-					<label>Style
+					<label>{t('fonts.style')}
 						<select bind:value={upStyle}>
-							<option value="normal">normal</option>
-							<option value="italic">italic</option>
+							<option value="normal">{t('fonts.styleNormal')}</option>
+							<option value="italic">{t('fonts.styleItalic')}</option>
 						</select>
 					</label>
 				</div>
-				<label>File <input type="file" accept=".woff2,.woff,.ttf,.otf" bind:files={upFile} required /></label>
-				<button type="submit" disabled={busy}>Upload</button>
+				<label>{t('fonts.file')} <input type="file" accept=".woff2,.woff,.ttf,.otf" bind:files={upFile} required /></label>
+				<button type="submit" disabled={busy}>{t('fonts.uploadBtn')}</button>
 			</form>
 
 			<form onsubmit={submitGoogle}>
-				<h2>Install from Google Fonts</h2>
-				<label>Family <input bind:value={gFamily} required placeholder="Sarabun" /></label>
-				<label>Weights <input bind:value={gWeights} placeholder="400, 700" /></label>
-				<button type="submit" disabled={busy}>Install</button>
-				<p class="subtle">Downloaded once to this instance; viewers never hit Google.</p>
+				<h2>{t('fonts.googleHeading')}</h2>
+				<label>{t('fonts.family')} <input bind:value={gFamily} required placeholder="Sarabun" /></label>
+				<label>{t('fonts.weights')} <input bind:value={gWeights} placeholder="400, 700" /></label>
+				<button type="submit" disabled={busy}>{t('fonts.install')}</button>
+				<p class="subtle">{t('fonts.downloadedOnce')}</p>
 			</form>
 		</div>
 	{:else}
-		<p class="subtle">Only an admin can install or remove fonts.</p>
+		<p class="subtle">{t('fonts.adminOnly')}</p>
 	{/if}
 
-	<h2>Installed</h2>
+	<h2>{t('fonts.installed')}</h2>
 	{#if byFamily.length === 0}
-		<p class="subtle">No fonts installed yet.</p>
+		<p class="subtle">{t('fonts.noFonts')}</p>
 	{:else}
 		<ul class="families">
 			{#each byFamily as [family, variants] (family)}
@@ -155,7 +161,7 @@
 								{v.style}
 								<small>{v.source}</small>
 								{#if isAdmin}
-									<button class="x" onclick={() => remove(v)} aria-label="remove">×</button>
+									<button class="x" onclick={() => remove(v)} aria-label={t('fonts.remove')}>×</button>
 								{/if}
 							</span>
 						{/each}
@@ -196,13 +202,13 @@
 	}
 
 	.hint code {
-		background: rgba(11, 18, 21, 0.08);
+		background: color-mix(in srgb, var(--dk-ink) 8%, transparent);
 		padding: 0.05em 0.3em;
 		border-radius: 4px;
 	}
 
 	.error {
-		color: #b3261e;
+		color: var(--dk-danger);
 	}
 
 	.button {
@@ -229,7 +235,7 @@
 		padding: 1rem;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
 		border-radius: 0.75rem;
-		background: #fff;
+		background: var(--dk-surface);
 	}
 
 	form .row {
@@ -252,7 +258,7 @@
 		padding: 0.4rem 0.5rem;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 25%, transparent);
 		border-radius: 0.5rem;
-		background: #fff;
+		background: var(--dk-surface);
 	}
 
 	form button {
@@ -284,7 +290,7 @@
 		padding: 0.75rem 1rem;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 12%, transparent);
 		border-radius: 0.6rem;
-		background: #fff;
+		background: var(--dk-surface);
 	}
 
 	.family {
@@ -316,7 +322,7 @@
 	.x {
 		border: none;
 		background: transparent;
-		color: #b3261e;
+		color: var(--dk-danger);
 		font-size: 1rem;
 		line-height: 1;
 		cursor: pointer;

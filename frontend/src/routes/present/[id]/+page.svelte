@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { renderDeck } from '$lib/marp';
+	import { t } from '$lib/i18n.svelte';
 
 	let { data } = $props();
 	// Present is a snapshot taken at mount; the window is always opened fresh
@@ -191,7 +192,7 @@
 			`deckoala-presenter-${deckId}`,
 			'width=1100,height=720'
 		);
-		notice = win ? '' : 'Allow pop-ups for this site to open the presenter view.';
+		notice = win ? '' : t('present.popupBlocked');
 	}
 
 	function timerLabel(): string {
@@ -270,56 +271,56 @@
 </script>
 
 <svelte:head>
-	<title>{data.deck.title} — {presenterMode ? 'Presenter' : 'Present'}</title>
+	<title>{data.deck.title} — {presenterMode ? t('present.presenterView') : t('present.title')}</title>
 </svelte:head>
 
 {#if emptyDeck}
 	<div class="empty">
-		<p>This deck has no slides.</p>
-		<a class="btn" href="/app/deck/{deckId}">Back to editor</a>
+		<p>{t('present.noSlides')}</p>
+		<a class="btn" href="/app/deck/{deckId}">{t('present.backToEditor')}</a>
 	</div>
 {:else if presenterMode}
 	<div class="presenter" bind:this={rootEl}>
 		<div class="stage-pair">
 			<div class="pane">
-				<span class="pane-label">Current — {index + 1} / {slideCount}</span>
+				<span class="pane-label">{t('present.current', { i: index + 1, n: slideCount })}</span>
 				<div class="surface" bind:this={curHost}></div>
 			</div>
 			<div class="pane">
-				<span class="pane-label">Next</span>
+				<span class="pane-label">{t('present.next')}</span>
 				{#if index + 1 < slideCount}
 					<div class="surface" bind:this={nextHost}></div>
 				{:else}
-					<div class="end">End of deck</div>
+					<div class="end">{t('present.endOfDeck')}</div>
 				{/if}
 			</div>
 		</div>
 		<div class="notes">
-			<h2>Speaker notes</h2>
-			<p>{notes[index]?.trim() || 'No notes for this slide.'}</p>
+			<h2>{t('present.speakerNotes')}</h2>
+			<p>{notes[index]?.trim() || t('present.noNotes')}</p>
 		</div>
 		<div class="controls">
 			<div class="timer">{timerLabel()}</div>
 			<button onclick={(e) => { timerRunning = !timerRunning; blurTarget(e); }}>
-				{timerRunning ? 'Pause' : 'Resume'}
+				{timerRunning ? t('present.pause') : t('present.resume')}
 			</button>
-			<button onclick={(e) => { elapsed = 0; blurTarget(e); }}>Reset</button>
+			<button onclick={(e) => { elapsed = 0; blurTarget(e); }}>{t('present.reset')}</button>
 			<span class="spacer"></span>
 			<button
 				onclick={(e) => {
 					setIndex(index - 1, true);
 					blurTarget(e);
 				}}
-				disabled={index === 0}>Prev</button
+				disabled={index === 0}>{t('present.prev')}</button
 			>
 			<button
 				onclick={(e) => {
 					setIndex(index + 1, true);
 					blurTarget(e);
 				}}
-				disabled={index + 1 >= slideCount}>Next</button
+				disabled={index + 1 >= slideCount}>{t('present.next')}</button
 			>
-			<button onclick={leave}>Exit</button>
+			<button onclick={leave}>{t('present.exit')}</button>
 		</div>
 	</div>
 {:else}
@@ -327,7 +328,7 @@
 		class="audience"
 		bind:this={rootEl}
 		role="application"
-		aria-label="Slide presentation"
+		aria-label={t('present.slideRegion')}
 		onpointermove={pokeControls}
 		ontouchstart={(e) => {
 			pokeControls();
@@ -337,7 +338,7 @@
 	>
 		<div class="stage" bind:this={stageHost}></div>
 		<div class="bar" class:hidden={!controlsVisible}>
-			<a class="btn" href="/app/deck/{deckId}">Exit</a>
+			<a class="btn" href="/app/deck/{deckId}">{t('present.exit')}</a>
 			<span class="counter">{index + 1} / {slideCount}</span>
 			{#if notice}<span class="notice">{notice}</span>{/if}
 			<span class="spacer"></span>
@@ -357,9 +358,9 @@
 				}}
 				disabled={index + 1 >= slideCount}>›</button
 			>
-			<button class="btn" onclick={(e) => { openPresenter(); blurTarget(e); }}>Presenter view</button>
+			<button class="btn" onclick={(e) => { openPresenter(); blurTarget(e); }}>{t('present.presenterView')}</button>
 			<button class="btn" onclick={(e) => { toggleFullscreen(); blurTarget(e); }}>
-				{isFullscreen ? 'Windowed' : 'Fullscreen'}
+				{isFullscreen ? t('present.windowed') : t('present.fullscreen')}
 			</button>
 		</div>
 	</div>

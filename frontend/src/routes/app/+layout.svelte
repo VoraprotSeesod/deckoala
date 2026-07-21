@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
+	import SettingsToggle from '$lib/components/SettingsToggle.svelte';
 
 	let { data, children } = $props();
 	let logoutError = $state('');
@@ -13,7 +15,7 @@
 		} catch {
 			// Do NOT navigate: the session is still alive — pretending we
 			// signed out would be worse than admitting the failure.
-			logoutError = 'Could not log out — is the server reachable? Try again.';
+			logoutError = t('nav.logoutError');
 		}
 	}
 </script>
@@ -26,9 +28,10 @@
 		</a>
 		<div class="session">
 			{#if logoutError}<span class="logout-error" role="alert">{logoutError}</span>{/if}
-			<a class="navlink" href="/app/fonts">Fonts</a>
+			<a class="navlink" href="/app/fonts">{t('nav.fonts')}</a>
 			<span class="user">{data.user.username}</span>
-			<button onclick={logout}>Log out</button>
+			<SettingsToggle />
+			<button onclick={logout}>{t('nav.logout')}</button>
 		</div>
 	</header>
 	<main>
@@ -87,7 +90,7 @@
 	}
 
 	.logout-error {
-		color: #b3261e;
+		color: var(--dk-danger);
 		font-size: 0.85rem;
 	}
 

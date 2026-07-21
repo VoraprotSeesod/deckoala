@@ -1,17 +1,33 @@
+<script lang="ts">
+	import { t } from '$lib/i18n.svelte';
+	import SettingsToggle from '$lib/components/SettingsToggle.svelte';
+</script>
+
 <svelte:head>
-	<title>Deckoala — Markdown presentations, self-hosted</title>
-	<meta name="description" content="Write Markdown, get slides. Self-hosted presentations with live preview, PDF export and sharing." />
+	<title>Deckoala — {t('landing.tagline')}</title>
+	<meta
+		name="description"
+		content="Write Markdown, get slides. Self-hosted presentations with live preview, PDF export and sharing."
+	/>
 </svelte:head>
+
+<div class="corner"><SettingsToggle /></div>
 
 <main>
 	<img src="/logo.svg" alt="Deckoala logo" width="160" height="160" />
 	<h1>Deckoala</h1>
-	<p class="tagline">Markdown presentations, self-hosted.</p>
-	<a class="cta" href="/app">Open app</a>
-	<p class="hint">This instance is up and healthy. The editor arrives in the next build phase.</p>
+	<p class="tagline">{t('landing.tagline')}</p>
+	<a class="cta" href="/app">{t('landing.openApp')}</a>
+	<p class="hint">{t('landing.healthy')}</p>
 </main>
 
 <style>
+	.corner {
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
+	}
+
 	main {
 		min-height: 100dvh;
 		display: flex;

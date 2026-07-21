@@ -4,6 +4,7 @@
 	import SharePresent from '$lib/components/SharePresent.svelte';
 	import { renderDeck } from '$lib/marp';
 	import { sharedAdapter, api, ApiError } from '$lib/api';
+	import { t } from '$lib/i18n.svelte';
 
 	let { data } = $props();
 	// The share page loads once for one token — capturing the initial value is
@@ -46,7 +47,7 @@
 			marpSheet.replaceSync(css);
 			shadow.innerHTML = html; // safe: marp html:false
 		} catch {
-			shadow.innerHTML = `<p style="opacity:.7">Preview failed to render.</p>`;
+			shadow.innerHTML = `<p style="opacity:.7">${t('editor.previewFailed')}</p>`;
 		}
 	});
 
@@ -56,7 +57,7 @@
 		try {
 			await api.shared.downloadPdf(token, deck.title);
 		} catch (e) {
-			errorMsg = e instanceof ApiError ? e.message : 'PDF export failed.';
+			errorMsg = e instanceof ApiError ? e.message : t('editor.pdfFailed');
 		} finally {
 			pdfBusy = false;
 		}
@@ -78,7 +79,7 @@
 		{adapter}
 		backHref="/"
 		backLabel="Deckoala"
-		banner="You're editing a shared deck — your changes are saved for everyone with this link."
+		banner={t('shared.editBanner')}
 		onPresent={present}
 	/>
 {:else}
@@ -86,13 +87,13 @@
 		<div class="topbar">
 			<a class="home" href="/">Deckoala</a>
 			<span class="vtitle">{deck.title}</span>
-			<span class="badge">Shared view</span>
+			<span class="badge">{t('shared.view')}</span>
 			<span class="spacer"></span>
-			<button class="button" onclick={() => present(deck.markdown)}>Present</button>
+			<button class="button" onclick={() => present(deck.markdown)}>{t('shared.present')}</button>
 			<button class="button" onclick={exportPdf} disabled={pdfBusy}>
-				{pdfBusy ? 'Generating…' : 'PDF'}
+				{pdfBusy ? t('shared.pdfBusy') : t('shared.pdf')}
 			</button>
-			<a class="button" href={api.shared.exportMdUrl(token)} download>.md</a>
+			<a class="button" href={api.shared.exportMdUrl(token)} download>{t('shared.md')}</a>
 		</div>
 		{#if errorMsg}<p class="error" role="alert">{errorMsg}</p>{/if}
 		<div class="preview-host" bind:this={previewHost}></div>
@@ -162,7 +163,7 @@
 	}
 
 	.error {
-		color: #b3261e;
+		color: var(--dk-danger);
 	}
 
 	.preview-host {

@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { api, ApiError, type DeckMeta } from '$lib/api';
 	import ShareManager from '$lib/components/ShareManager.svelte';
+	import { t, formatDate } from '$lib/i18n.svelte';
 
 	let { data } = $props();
 	let sharingDeckId = $state<string | null>(null);
@@ -14,11 +15,7 @@
 	let fileInput = $state<HTMLInputElement | null>(null);
 
 	function fail(e: unknown) {
-		errorMsg = e instanceof ApiError ? e.message : 'Something went wrong.';
-	}
-
-	function updatedLabel(iso: string): string {
-		return new Date(iso).toLocaleString();
+		errorMsg = e instanceof ApiError ? e.message : t('common.somethingWrong');
 	}
 
 	async function newDeck() {
@@ -41,7 +38,7 @@
 		if (!file) return;
 		errorMsg = '';
 		if (file.size > 1_000_000) {
-			errorMsg = 'File too large — decks are capped at 1 MB of Markdown.';
+			errorMsg = t('dash.fileTooLarge');
 			return;
 		}
 		try {
@@ -64,7 +61,7 @@
 	}
 
 	async function rename(deck: DeckMeta) {
-		const title = prompt('Rename deck', deck.title)?.trim();
+		const title = prompt(t('dash.renamePrompt'), deck.title)?.trim();
 		if (!title || title === deck.title) return;
 		errorMsg = '';
 		try {
@@ -101,7 +98,7 @@
 	}
 
 	async function remove(deck: DeckMeta) {
-		if (!confirm(`Delete "${deck.title}"?`)) return;
+		if (!confirm(t('dash.confirmDelete', { title: deck.title }))) return;
 		errorMsg = '';
 		try {
 			await api.decks.remove(deck.id);
@@ -113,15 +110,15 @@
 </script>
 
 <svelte:head>
-	<title>Decks — Deckoala</title>
+	<title>{t('dash.title')} — Deckoala</title>
 </svelte:head>
 
 <section>
 	<div class="toolbar">
-		<h1>Decks</h1>
+		<h1>{t('dash.title')}</h1>
 		<div class="actions">
-			<button class="primary" onclick={newDeck} disabled={busy}>New deck</button>
-			<button onclick={() => fileInput?.click()}>Import .md</button>
+			<button class="primary" onclick={newDeck} disabled={busy}>{t('dash.newDeck')}</button>
+			<button onclick={() => fileInput?.click()}>{t('dash.import')}</button>
 			<input
 				bind:this={fileInput}
 				type="file"
@@ -137,25 +134,25 @@
 	{#if decks.length === 0}
 		<div class="empty">
 			<img src="/logo.svg" alt="" width="72" height="72" />
-			<p>No decks yet. Your first presentation is one click away.</p>
-			<button class="primary" onclick={newDeck} disabled={busy}>New deck</button>
+			<p>{t('dash.emptyTitle')}</p>
+			<button class="primary" onclick={newDeck} disabled={busy}>{t('dash.newDeck')}</button>
 		</div>
 	{:else}
 		<ul class="grid">
 			{#each decks as deck (deck.id)}
 				<li class="card">
 					<a class="title" href="/app/deck/{deck.id}">{deck.title}</a>
-					<span class="meta">Updated {updatedLabel(deck.updatedAt)}</span>
+					<span class="meta">{t('dash.updated', { when: formatDate(deck.updatedAt) })}</span>
 					<div class="row">
-						<a class="button" href="/present/{deck.id}">Present</a>
-						<button onclick={() => (sharingDeckId = deck.id)}>Share</button>
+						<a class="button" href="/present/{deck.id}">{t('dash.present')}</a>
+						<button onclick={() => (sharingDeckId = deck.id)}>{t('dash.share')}</button>
 						<button onclick={() => exportPdf(deck)} disabled={pdfBusyId === deck.id}>
-							{pdfBusyId === deck.id ? 'PDF…' : 'PDF'}
+							{pdfBusyId === deck.id ? t('dash.pdfBusy') : t('dash.pdf')}
 						</button>
-						<button onclick={() => rename(deck)}>Rename</button>
-						<button onclick={() => duplicate(deck)}>Duplicate</button>
-						<a class="button" href={api.decks.exportUrl(deck.id)} download>.md</a>
-						<button class="danger" onclick={() => remove(deck)}>Delete</button>
+						<button onclick={() => rename(deck)}>{t('dash.rename')}</button>
+						<button onclick={() => duplicate(deck)}>{t('dash.duplicate')}</button>
+						<a class="button" href={api.decks.exportUrl(deck.id)} download>{t('dash.exportMd')}</a>
+						<button class="danger" onclick={() => remove(deck)}>{t('dash.delete')}</button>
 					</div>
 				</li>
 			{/each}
@@ -213,8 +210,8 @@
 	}
 
 	.danger {
-		border-color: #b3261e;
-		color: #b3261e;
+		border-color: var(--dk-danger);
+		color: var(--dk-danger);
 	}
 
 	button:disabled {
@@ -222,7 +219,7 @@
 	}
 
 	.error {
-		color: #b3261e;
+		color: var(--dk-danger);
 	}
 
 	.empty {
@@ -251,7 +248,7 @@
 		padding: 1rem;
 		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
 		border-radius: 0.75rem;
-		background: #fff;
+		background: var(--dk-surface);
 	}
 
 	.title {

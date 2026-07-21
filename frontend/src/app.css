@@ -1,6 +1,27 @@
 :root {
 	--dk-bg: #f8f8ff;
 	--dk-ink: #0b1215;
+	--dk-surface: #ffffff;
+	--dk-danger: #b3261e;
+	--dk-success: #157347;
+	--dk-warn: #b3862d;
+	--dk-warn-bg: #fdf4dd;
+	--dk-warn-ink: #5a4718;
+}
+
+/* App-chrome dark mode (BRIEF-0009). Only the app UI reacts — the Marp
+   `deckoala` slide theme (preview / present / print) stays light-branded, and
+   the present stage keeps its own fixed dark. Borders written as
+   color-mix(var(--dk-ink) …) invert for free once --dk-ink flips light. */
+:root[data-theme='dark'] {
+	--dk-bg: #0f141a;
+	--dk-ink: #e7ebef;
+	--dk-surface: #1b232c;
+	--dk-danger: #ef6a63;
+	--dk-success: #4ecb8a;
+	--dk-warn: #d9b45a;
+	--dk-warn-bg: #2e2716;
+	--dk-warn-ink: #f0dfa8;
 }
 
 html {

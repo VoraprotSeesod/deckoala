@@ -1,19 +1,20 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { t } from '$lib/i18n.svelte';
 </script>
 
 <svelte:head>
-	<title>Error — Deckoala</title>
+	<title>{t('error.title')} — Deckoala</title>
 </svelte:head>
 
 <main>
 	<img src="/logo.svg" alt="" width="96" height="96" />
-	<h1>Something went wrong</h1>
+	<h1>{t('error.title')}</h1>
 	<p class="detail">{page.status}{page.error?.message ? ` — ${page.error.message}` : ''}</p>
 	<nav>
-		<a href="/app">Try again</a>
-		<a href="/login">Go to sign-in</a>
-		<a href="/">Home</a>
+		<a href="/app">{t('dash.title')}</a>
+		<a href="/login">{t('login.signIn')}</a>
+		<a href="/">{t('error.home')}</a>
 	</nav>
 </main>
 
