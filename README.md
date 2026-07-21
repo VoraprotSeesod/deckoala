@@ -64,6 +64,43 @@ Only the **server** ever calls the provider, and only for a signed-in user's exp
 available on anonymous share links. Pages served to viewers (share links, present mode, PDF export) continue to make
 **zero** external requests.
 
+### MCP server (connect an external AI client)
+
+Deckoala exposes an [MCP](https://modelcontextprotocol.io) server at **`POST /mcp`** (JSON-RPC 2.0) so an outside AI
+client — Claude Desktop, Claude Code, or anything else that speaks MCP — can list, read, create and update **your**
+decks. Mint a token under **API tokens** in the app; the value is shown once and stored only as a SHA-256 hash. A
+token acts as the user who created it and is scoped to that user's decks; revoking it takes effect immediately.
+There is deliberately no delete tool.
+
+Tools: `list_decks`, `get_deck`, `create_deck`, `update_deck` (an update snapshots the previous content as a revision,
+exactly like the editor does).
+
+For an HTTP-capable client, point it at the endpoint with an `Authorization` header:
+
+```bash
+claude mcp add --transport http deckoala https://deckoala.example.com/mcp \
+  --header "Authorization: Bearer dko_…"
+```
+
+For a client that only speaks stdio, use the bundled zero-dependency shim ([tools/mcp-stdio-bridge.mjs](tools/mcp-stdio-bridge.mjs), Node ≥ 18):
+
+```json
+{
+  "mcpServers": {
+    "deckoala": {
+      "command": "node",
+      "args": ["/path/to/deckoala/tools/mcp-stdio-bridge.mjs"],
+      "env": {
+        "DECKOALA_MCP_URL": "https://deckoala.example.com/mcp",
+        "DECKOALA_MCP_TOKEN": "dko_…"
+      }
+    }
+  }
+}
+```
+
+The MCP endpoint is **inbound only** — it adds no outbound call of its own.
+
 ## Development (native)
 
 Requirements: Node ≥ 20, Rust (stable ≥ 1.88).

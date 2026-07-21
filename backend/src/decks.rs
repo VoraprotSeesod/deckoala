@@ -61,23 +61,67 @@ impl FromRequestParts<AppState> for AdminUser {
     }
 }
 
+// `pub(crate)` (with pub(crate) fields) so the data helpers below can be
+// pub(crate) too — a pub(crate) fn returning a module-private type trips
+// `private_interfaces`, which `-D warnings` turns into a build failure.
 #[derive(sqlx::FromRow)]
-struct DeckRow {
-    id: String,
-    title: String,
-    markdown: String,
-    theme: String,
-    created_at: String,
-    updated_at: String,
+pub(crate) struct DeckRow {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) markdown: String,
+    pub(crate) theme: String,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
 }
 
 #[derive(sqlx::FromRow)]
-struct DeckMetaRow {
-    id: String,
-    title: String,
-    theme: String,
-    created_at: String,
-    updated_at: String,
+pub(crate) struct DeckMetaRow {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) theme: String,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+/// Typed failure for the data-level helpers. Validation lives WITH the data
+/// operation so every caller — the HTTP handlers, share-token routes and the
+/// MCP tools — enforces the same bounds; only the presentation differs.
+pub(crate) enum DeckError {
+    NotFound,
+    NothingToUpdate,
+    TitleEmpty,
+    TitleTooLong,
+    TitleControlChars,
+    MarkdownTooLarge,
+    Db,
+}
+
+impl DeckError {
+    pub(crate) fn message(&self) -> &'static str {
+        match self {
+            Self::NotFound => "not found",
+            Self::NothingToUpdate => "nothing to update",
+            Self::TitleEmpty => "title must not be empty",
+            Self::TitleTooLong => "title must be at most 200 characters",
+            Self::TitleControlChars => "title must not contain control characters",
+            Self::MarkdownTooLarge => "markdown too large (max 1 MB)",
+            Self::Db => "database error",
+        }
+    }
+
+    fn status(&self) -> StatusCode {
+        match self {
+            Self::NotFound => StatusCode::NOT_FOUND,
+            Self::Db => StatusCode::INTERNAL_SERVER_ERROR,
+            _ => StatusCode::UNPROCESSABLE_ENTITY,
+        }
+    }
+}
+
+impl IntoResponse for DeckError {
+    fn into_response(self) -> Response {
+        json_error(self.status(), self.message())
+    }
 }
 
 #[derive(Serialize)]
@@ -166,20 +210,6 @@ fn parse_title(input: Option<String>) -> TitleInput {
     }
 }
 
-fn title_too_long() -> Response {
-    json_error(
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "title must be at most 200 characters",
-    )
-}
-
-fn title_has_controls() -> Response {
-    json_error(
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "title must not contain control characters",
-    )
-}
-
 fn markdown_too_large(markdown: &Option<String>) -> bool {
     markdown
         .as_ref()
@@ -208,16 +238,142 @@ fn not_found() -> Response {
 }
 
 pub async fn list(State(state): State<AppState>, AuthUser(user_id): AuthUser) -> Response {
-    match sqlx::query_as::<_, DeckMetaRow>(
+    match list_decks_data(&state, &user_id).await {
+        Ok(rows) => Json(rows.into_iter().map(DeckMeta::from).collect::<Vec<_>>()).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// The caller's decks, newest-updated first. Shared by the HTTP list and MCP.
+pub(crate) async fn list_decks_data(
+    state: &AppState,
+    owner_id: &str,
+) -> Result<Vec<DeckMetaRow>, DeckError> {
+    sqlx::query_as::<_, DeckMetaRow>(
         "SELECT id, title, theme, created_at, updated_at FROM decks \
          WHERE owner_id = ?1 AND deleted_at IS NULL ORDER BY updated_at DESC",
     )
-    .bind(&user_id)
+    .bind(owner_id)
     .fetch_all(&state.db)
     .await
-    {
-        Ok(rows) => Json(rows.into_iter().map(DeckMeta::from).collect::<Vec<_>>()).into_response(),
-        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    .map_err(|_| DeckError::Db)
+}
+
+/// One deck owned by `owner_id`. A foreign deck is indistinguishable from a
+/// missing one.
+pub(crate) async fn fetch_deck_data(
+    state: &AppState,
+    id: &str,
+    owner_id: &str,
+) -> Result<DeckRow, DeckError> {
+    sqlx::query_as::<_, DeckRow>(
+        "SELECT id, title, markdown, theme, created_at, updated_at FROM decks \
+         WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(owner_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| DeckError::Db)?
+    .ok_or(DeckError::NotFound)
+}
+
+/// Validate a title/markdown pair the same way for every caller.
+fn check_title(input: Option<String>) -> Result<Option<String>, DeckError> {
+    match parse_title(input) {
+        TitleInput::Missing => Ok(None),
+        TitleInput::Empty => Err(DeckError::TitleEmpty),
+        TitleInput::TooLong => Err(DeckError::TitleTooLong),
+        TitleInput::HasControlChars => Err(DeckError::TitleControlChars),
+        TitleInput::Value(value) => Ok(Some(value)),
+    }
+}
+
+/// Create a deck for `owner_id`. Validation lives HERE (not in the HTTP
+/// wrapper) so MCP cannot write rows the HTTP path would reject.
+pub(crate) async fn create_deck_data(
+    state: &AppState,
+    owner_id: &str,
+    title: Option<String>,
+    markdown: Option<String>,
+) -> Result<DeckRow, DeckError> {
+    let title = match parse_title(title) {
+        TitleInput::Missing | TitleInput::Empty => DEFAULT_TITLE.to_owned(),
+        TitleInput::TooLong => return Err(DeckError::TitleTooLong),
+        TitleInput::HasControlChars => return Err(DeckError::TitleControlChars),
+        TitleInput::Value(value) => value,
+    };
+    if markdown_too_large(&markdown) {
+        return Err(DeckError::MarkdownTooLarge);
+    }
+    let markdown = markdown.unwrap_or_else(|| default_template(&title));
+
+    let id = Uuid::new_v4().to_string();
+    let now = now_rfc3339();
+    sqlx::query(
+        "INSERT INTO decks (id, owner_id, title, markdown, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+    )
+    .bind(&id)
+    .bind(owner_id)
+    .bind(&title)
+    .bind(&markdown)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .map_err(|_| DeckError::Db)?;
+    fetch_deck_data(state, &id, owner_id).await
+}
+
+/// Apply a title/markdown update inside the BEGIN IMMEDIATE revision-snapshot
+/// transaction. The single source for the owner PATCH, share-token edits and
+/// MCP `update_deck` — so the snapshot policy can never be bypassed.
+pub(crate) async fn update_deck_data(
+    state: &AppState,
+    id: &str,
+    owner_id: &str,
+    title: Option<String>,
+    markdown: Option<String>,
+    base_updated_at: Option<&str>,
+) -> Result<DeckRow, DeckError> {
+    if title.is_none() && markdown.is_none() {
+        return Err(DeckError::NothingToUpdate);
+    }
+    let title = check_title(title)?;
+    if markdown_too_large(&markdown) {
+        return Err(DeckError::MarkdownTooLarge);
+    }
+
+    let now = now_rfc3339();
+    let mut tx = state
+        .db
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|_| DeckError::Db)?;
+    let outcome = update_in_tx(
+        &mut tx,
+        state,
+        id,
+        owner_id,
+        &title,
+        &markdown,
+        base_updated_at,
+        &now,
+    )
+    .await;
+    match outcome {
+        Ok(Some(row)) => {
+            tx.commit().await.map_err(|_| DeckError::Db)?;
+            Ok(row)
+        }
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            Err(DeckError::NotFound)
+        }
+        Err(_) => {
+            let _ = tx.rollback().await;
+            Err(DeckError::Db)
+        }
     }
 }
 
@@ -232,40 +388,9 @@ pub async fn create(
     AuthUser(user_id): AuthUser,
     Json(body): Json<CreateDeck>,
 ) -> Response {
-    let title = match parse_title(body.title) {
-        TitleInput::Missing | TitleInput::Empty => DEFAULT_TITLE.to_owned(),
-        TitleInput::TooLong => return title_too_long(),
-        TitleInput::HasControlChars => return title_has_controls(),
-        TitleInput::Value(value) => value,
-    };
-    if markdown_too_large(&body.markdown) {
-        return json_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "markdown too large (max 1 MB)",
-        );
-    }
-    let markdown = body.markdown.unwrap_or_else(|| default_template(&title));
-
-    let id = Uuid::new_v4().to_string();
-    let now = now_rfc3339();
-    let inserted = sqlx::query(
-        "INSERT INTO decks (id, owner_id, title, markdown, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-    )
-    .bind(&id)
-    .bind(&user_id)
-    .bind(&title)
-    .bind(&markdown)
-    .bind(&now)
-    .execute(&state.db)
-    .await;
-    if inserted.is_err() {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error");
-    }
-
-    match fetch_deck(&state, &id, &user_id).await {
-        Ok(Some(row)) => (StatusCode::CREATED, Json(DeckFull::from(row))).into_response(),
-        _ => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    match create_deck_data(&state, &user_id, body.title, body.markdown).await {
+        Ok(row) => (StatusCode::CREATED, Json(DeckFull::from(row))).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -280,10 +405,9 @@ pub async fn get_one(
 /// Read one deck as `owner_id`. Shared by the owner route and the share-token
 /// route (which passes the deck's real owner after the token authorized it).
 pub(crate) async fn get_deck_core(state: &AppState, id: &str, owner_id: &str) -> Response {
-    match fetch_deck(state, id, owner_id).await {
-        Ok(Some(row)) => Json(DeckFull::from(row)).into_response(),
-        Ok(None) => not_found(),
-        Err(response) => response,
+    match fetch_deck_data(state, id, owner_id).await {
+        Ok(row) => Json(DeckFull::from(row)).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -330,47 +454,19 @@ pub(crate) async fn update_deck_core(
     owner_id: &str,
     body: UpdateDeck,
 ) -> Response {
-    if body.title.is_none() && body.markdown.is_none() {
-        return json_error(StatusCode::UNPROCESSABLE_ENTITY, "nothing to update");
-    }
-    let title = match parse_title(body.title) {
-        TitleInput::Missing => None,
-        TitleInput::Empty => {
-            return json_error(StatusCode::UNPROCESSABLE_ENTITY, "title must not be empty")
-        }
-        TitleInput::TooLong => return title_too_long(),
-        TitleInput::HasControlChars => return title_has_controls(),
-        TitleInput::Value(value) => Some(value),
-    };
-    if markdown_too_large(&body.markdown) {
-        return json_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "markdown too large (max 1 MB)",
-        );
-    }
-
-    let now = now_rfc3339();
-    // BEGIN IMMEDIATE via sqlx's Transaction API: takes the write lock up
-    // front so concurrent autosaves serialize (deferred transactions would
-    // hit SQLITE_BUSY_SNAPSHOT or double-snapshot), AND auto-rollbacks on
-    // drop — a client disconnect cancelling this future can never leak an
-    // open transaction back into the pool (BRIEF-0003).
-    let mut tx = match state.db.begin_with("BEGIN IMMEDIATE").await {
-        Ok(tx) => tx,
-        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
-    };
-    let outcome = update_in_tx(
-        &mut tx,
+    match update_deck_data(
         state,
         id,
         owner_id,
-        &title,
-        &body.markdown,
+        body.title,
+        body.markdown,
         body.base_updated_at.as_deref(),
-        &now,
     )
-    .await;
-    finish_deck_tx(tx, outcome).await
+    .await
+    {
+        Ok(row) => Json(DeckFull::from(row)).into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// Commit + 200 on success, rollback + 404/500 otherwise.

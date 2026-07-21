@@ -46,6 +46,7 @@ async fn main() {
         share_export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
         ai_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
         ai_last_call: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
+        mcp_writes: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
     };
     let router = app(state, &config.static_dir)
         .await

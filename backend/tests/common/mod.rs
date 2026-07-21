@@ -36,6 +36,7 @@ pub async fn test_app_full(
             share_export_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
             ai_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             ai_last_call: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
+            mcp_writes: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         },
         std::path::Path::new("nonexistent-static"),
     )
@@ -85,6 +86,45 @@ pub async fn send(
     }
     if let Some(origin) = origin {
         builder = builder.header(header::ORIGIN, origin);
+    }
+    let request = builder
+        .body(match body {
+            Some(json) => Body::from(json.to_string()),
+            None => Body::empty(),
+        })
+        .unwrap();
+
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    TestResponse {
+        status,
+        headers,
+        json,
+        text,
+        bytes: bytes.to_vec(),
+    }
+}
+
+/// Send a JSON request with a Bearer token instead of a session cookie
+/// (the MCP endpoint authenticates only via `Authorization`).
+pub async fn send_bearer(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    body: Option<serde_json::Value>,
+    token: Option<&str>,
+) -> TestResponse {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::HOST, TEST_HOST)
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
     }
     let request = builder
         .body(match body {

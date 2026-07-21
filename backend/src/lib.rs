@@ -4,8 +4,10 @@ pub mod auth;
 pub mod decks;
 pub mod export;
 pub mod fonts;
+pub mod mcp;
 pub mod settings;
 pub mod shares;
+pub mod tokens;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -57,6 +59,10 @@ pub struct AppState {
     /// Per-user AI throttle: a global semaphore alone would still let one
     /// signed-in user burn the instance's provider budget.
     pub ai_last_call: std::sync::Arc<tokio::sync::Mutex<HashMap<String, std::time::Instant>>>,
+    /// Per-user MCP write budget (BRIEF-0011): a fixed-window counter over
+    /// `create_deck`/`update_deck`. MCP is the only automated write path, so a
+    /// runaway agent loop is bounded without slowing a normal editing session.
+    pub mcp_writes: std::sync::Arc<tokio::sync::Mutex<HashMap<String, (std::time::Instant, u32)>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +340,8 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
             get(settings::get_settings).put(settings::put_settings),
         )
         .route("/ai/generate", post(ai::generate))
+        .route("/tokens", get(tokens::list).post(tokens::create))
+        .route("/tokens/{id}", axum::routing::delete(tokens::revoke))
         .route("/decks", get(decks::list).post(decks::create))
         .route(
             "/decks/{id}",
@@ -415,6 +423,22 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .route("/fonts/{filename}", get(fonts::serve))
         .with_state(state.clone());
 
+    // MCP (BRIEF-0011). Deliberately OUTSIDE /api: pure `Authorization: Bearer`
+    // auth, so it needs no session layer and presents no CSRF surface (a
+    // browser cannot set Authorization cross-origin without CORS — and we add
+    // no CORS layer). It carries its own body limit because the 4 MB layer on
+    // /api does not reach here, and JSON escaping can double a 1 MB deck.
+    let mcp_router = Router::new()
+        .route("/mcp", post(mcp::handle))
+        .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
+        .with_state(state.clone());
+
+    // MCP clients probe OAuth discovery paths; letting those fall through to
+    // the SPA would answer them with an HTML 200 and confuse the client.
+    let well_known = Router::new()
+        .route("/.well-known/{*rest}", get(api_not_found))
+        .with_state(state.clone());
+
     let spa = ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
     // CSP: html:false already blocks scripts in markdown, but only CSP stops
     // network egress (external images / CSS url() in user decks) — the
@@ -440,6 +464,8 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .nest("/api", api)
         .merge(assets_router)
         .merge(fonts_router)
+        .merge(mcp_router)
+        .merge(well_known)
         .fallback_service(spa)
         .layer(csp)
         .layer(referrer))

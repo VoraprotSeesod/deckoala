@@ -112,6 +112,22 @@ export type FontInfo = {
 	createdAt: string;
 };
 
+export type ApiToken = {
+	id: string;
+	name: string;
+	createdAt: string;
+	lastUsedAt: string | null;
+	revokedAt: string | null;
+};
+
+/** Only the create call ever carries `token` — it is never listed again. */
+export type CreatedApiToken = {
+	id: string;
+	name: string;
+	createdAt: string;
+	token: string;
+};
+
 export type SharePermission = 'view' | 'edit';
 
 export type ShareLink = {
@@ -204,6 +220,12 @@ export const api = {
 				method: 'POST',
 				body: JSON.stringify({ prompt, existingMarkdown })
 			})
+	},
+	tokens: {
+		list: () => request<ApiToken[]>('/api/tokens'),
+		create: (name: string) =>
+			request<CreatedApiToken>('/api/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
+		revoke: (id: string) => request<void>(`/api/tokens/${id}`, { method: 'DELETE' })
 	},
 	decks: {
 		list: () => request<DeckMeta[]>('/api/decks'),

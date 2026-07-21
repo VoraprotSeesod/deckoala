@@ -29,6 +29,7 @@
 		<div class="session">
 			{#if logoutError}<span class="logout-error" role="alert">{logoutError}</span>{/if}
 			<a class="navlink" href="/app/fonts">{t('nav.fonts')}</a>
+			<a class="navlink" href="/app/tokens">{t('nav.tokens')}</a>
 			{#if data.user.isAdmin}
 				<a class="navlink" href="/app/admin">{t('nav.admin')}</a>
 			{/if}

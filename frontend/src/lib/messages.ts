@@ -220,6 +220,42 @@ const en: Catalog = {
 	'ai.failed': 'Generation failed.',
 	'ai.disabled': 'AI is not configured on this instance.',
 	'ai.result': 'Result',
+	// API tokens / MCP
+	'nav.tokens': 'API tokens',
+	'tokens.title': 'API tokens (MCP)',
+	'tokens.hint':
+		'Connect an external AI client (Claude Desktop, Claude Code, any MCP client) to your decks. A token acts as you and can read and edit only your own decks.',
+	'tokens.endpoint': 'MCP endpoint',
+	'tokens.newToken': 'New token',
+	'tokens.name': 'Name',
+	'tokens.namePlaceholder': 'e.g. Claude Desktop',
+	'tokens.create': 'Create token',
+	'tokens.createdOnce':
+		'Copy this token now — it is shown only once and cannot be retrieved again.',
+	'tokens.copy': 'Copy',
+	'tokens.copied': 'Copied',
+	'tokens.done': 'Done',
+	'tokens.existing': 'Your tokens',
+	'tokens.none': 'No tokens yet.',
+	'tokens.created': (p) => `created ${p.when}`,
+	'tokens.lastUsed': (p) => `last used ${p.when}`,
+	'tokens.neverUsed': 'never used',
+	'tokens.revoke': 'Revoke',
+	'tokens.revoked': 'revoked',
+	'tokens.active': 'active',
+	'tokens.revokeConfirm': (p) => `Revoke “${p.name}”? Any client using it loses access immediately.`,
+	'tokens.createFailed': 'Could not create the token.',
+	'tokens.loadFailed': 'Could not load your tokens.',
+	'tokens.revokeFailed': 'Could not revoke the token.',
+	'tokens.configHint': 'Client configuration',
+	'tokens.clientsHttp':
+		'Clients that let you set a custom header (Claude Code, and most MCP clients) connect straight to the endpoint above:',
+	'tokens.clientsStdio':
+		'Clients that only speak stdio (Claude Desktop) need the bundled bridge, tools/mcp-stdio-bridge.mjs (Node 18+):',
+	'tokens.toolsNote':
+		'A token can list, read, create and edit your decks. It cannot delete decks, reach admin settings, or create more tokens.',
+	'tokens.snippetsLive':
+		'While this is on screen, the client configuration below is filled in with this token — copy it now.',
 	// error page
 	'error.title': 'Something went wrong',
 	'error.home': 'Go home',
@@ -422,6 +458,40 @@ const th: Catalog = {
 	'ai.failed': 'สร้างไม่สำเร็จ',
 	'ai.disabled': 'อินสแตนซ์นี้ยังไม่ได้ตั้งค่า AI',
 	'ai.result': 'ผลลัพธ์',
+	'nav.tokens': 'API token',
+	'tokens.title': 'API token (MCP)',
+	'tokens.hint':
+		'เชื่อม AI จากภายนอก (Claude Desktop, Claude Code หรือ MCP client อื่น ๆ) เข้ากับสไลด์ของคุณ โทเค็นทำงานแทนคุณ และอ่าน/แก้ไขได้เฉพาะสไลด์ของคุณเท่านั้น',
+	'tokens.endpoint': 'MCP endpoint',
+	'tokens.newToken': 'สร้างโทเค็นใหม่',
+	'tokens.name': 'ชื่อ',
+	'tokens.namePlaceholder': 'เช่น Claude Desktop',
+	'tokens.create': 'สร้างโทเค็น',
+	'tokens.createdOnce': 'คัดลอกโทเค็นนี้ทันที — จะแสดงเพียงครั้งเดียวและดูย้อนหลังไม่ได้',
+	'tokens.copy': 'คัดลอก',
+	'tokens.copied': 'คัดลอกแล้ว',
+	'tokens.done': 'เสร็จสิ้น',
+	'tokens.existing': 'โทเค็นของคุณ',
+	'tokens.none': 'ยังไม่มีโทเค็น',
+	'tokens.created': (p) => `สร้างเมื่อ ${p.when}`,
+	'tokens.lastUsed': (p) => `ใช้ล่าสุด ${p.when}`,
+	'tokens.neverUsed': 'ยังไม่เคยใช้',
+	'tokens.revoke': 'เพิกถอน',
+	'tokens.revoked': 'เพิกถอนแล้ว',
+	'tokens.active': 'ใช้งานได้',
+	'tokens.revokeConfirm': (p) => `เพิกถอน “${p.name}” ใช่ไหม? ไคลเอนต์ที่ใช้อยู่จะเข้าถึงไม่ได้ทันที`,
+	'tokens.createFailed': 'สร้างโทเค็นไม่สำเร็จ',
+	'tokens.loadFailed': 'โหลดรายการโทเค็นไม่สำเร็จ',
+	'tokens.revokeFailed': 'เพิกถอนโทเค็นไม่สำเร็จ',
+	'tokens.configHint': 'การตั้งค่าไคลเอนต์',
+	'tokens.clientsHttp':
+		'ไคลเอนต์ที่ตั้ง header เองได้ (Claude Code และ MCP client ส่วนใหญ่) เชื่อมกับ endpoint ด้านบนได้เลย:',
+	'tokens.clientsStdio':
+		'ไคลเอนต์ที่รองรับเฉพาะ stdio (Claude Desktop) ต้องใช้ตัวเชื่อมที่ให้มา tools/mcp-stdio-bridge.mjs (Node 18+):',
+	'tokens.toolsNote':
+		'โทเค็นสามารถดู อ่าน สร้าง และแก้ไขสไลด์ของคุณได้ แต่ลบสไลด์ไม่ได้ เข้าหน้าตั้งค่าผู้ดูแลไม่ได้ และสร้างโทเค็นใหม่ไม่ได้',
+	'tokens.snippetsLive':
+		'ระหว่างที่ยังแสดงอยู่ ค่าในการตั้งค่าไคลเอนต์ด้านล่างจะเป็นโทเค็นนี้ — คัดลอกตอนนี้เลย',
 	'error.title': 'มีบางอย่างผิดพลาด',
 	'error.home': 'กลับหน้าแรก',
 	'error.notFound': 'ไม่พบหน้านี้'
