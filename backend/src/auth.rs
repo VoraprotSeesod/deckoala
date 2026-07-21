@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{json_error, now_rfc3339, AppState};
 
-const SESSION_USER_KEY: &str = "user_id";
+pub(crate) const SESSION_USER_KEY: &str = "user_id";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

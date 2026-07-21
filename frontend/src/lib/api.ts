@@ -37,9 +37,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	return response.json() as Promise<T>;
 }
 
+export type DeckMeta = {
+	id: string;
+	title: string;
+	theme: string;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type Deck = DeckMeta & { markdown: string };
+
 export const api = {
 	instance: () => request<Instance>('/api/instance'),
 	me: () => request<User>('/api/auth/me'),
+	decks: {
+		list: () => request<DeckMeta[]>('/api/decks'),
+		create: (body: { title?: string; markdown?: string } = {}) =>
+			request<Deck>('/api/decks', { method: 'POST', body: JSON.stringify(body) }),
+		get: (id: string) => request<Deck>(`/api/decks/${id}`),
+		update: (id: string, body: { title?: string; markdown?: string }) =>
+			request<Deck>(`/api/decks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+		remove: (id: string) => request<void>(`/api/decks/${id}`, { method: 'DELETE' }),
+		duplicate: (id: string) => request<Deck>(`/api/decks/${id}/duplicate`, { method: 'POST' }),
+		exportUrl: (id: string) => `/api/decks/${id}/export`
+	},
 	register: (username: string, password: string) =>
 		request<User>('/api/auth/register', {
 			method: 'POST',

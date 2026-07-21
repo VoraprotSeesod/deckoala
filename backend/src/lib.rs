@@ -1,7 +1,9 @@
 pub mod auth;
+pub mod decks;
 
 use std::path::{Path, PathBuf};
 
+use axum::extract::DefaultBodyLimit;
 use axum::{
     extract::{Request, State},
     http::{header, Method, StatusCode},
@@ -13,7 +15,6 @@ use axum::{
 use serde::Serialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
-use time::format_description::well_known::Rfc3339;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_sessions::{cookie::SameSite, ExpiredDeletion, Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
@@ -82,10 +83,21 @@ impl Config {
 }
 
 /// Current UTC time as an RFC3339 string (project-wide timestamp format).
+/// Fixed-width (always 6 subsecond digits) so TEXT columns holding these
+/// values sort lexicographically in true chronological order — `time`'s
+/// well-known RFC3339 trims trailing zeros and would misorder rows.
 pub fn now_rfc3339() -> String {
-    time::OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_default()
+    let now = time::OffsetDateTime::now_utc();
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second(),
+        now.microsecond()
+    )
 }
 
 /// Create the data directory if needed, open (or create) the SQLite database
@@ -95,6 +107,7 @@ pub async fn init_db(data_dir: &Path) -> Result<SqlitePool, Box<dyn std::error::
     let options = SqliteConnectOptions::new()
         .filename(data_dir.join("deckoala.db"))
         .create_if_missing(true)
+        .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -239,7 +252,19 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me", get(auth::me))
+        .route("/decks", get(decks::list).post(decks::create))
+        .route(
+            "/decks/{id}",
+            get(decks::get_one)
+                .patch(decks::update)
+                .delete(decks::remove),
+        )
+        .route("/decks/{id}/duplicate", post(decks::duplicate))
+        .route("/decks/{id}/export", get(decks::export))
         .fallback(api_not_found)
+        // JSON escaping can double a 1 MB markdown payload; the app-level
+        // 1 MB cap stays authoritative (BRIEF-0002).
+        .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             same_origin_guard,
@@ -279,7 +304,15 @@ pub fn healthcheck() -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{origin_allowed, url_authority};
+    use super::{now_rfc3339, origin_allowed, url_authority};
+
+    #[test]
+    fn timestamps_are_fixed_width_and_sortable() {
+        let ts = now_rfc3339();
+        assert_eq!(ts.len(), 27, "YYYY-MM-DDTHH:MM:SS.ffffffZ = 27 chars: {ts}");
+        assert!(ts.ends_with('Z'));
+        assert_eq!(ts.chars().filter(|c| *c == '.').count(), 1);
+    }
 
     #[test]
     fn origin_matches_raw_host() {

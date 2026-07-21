@@ -78,7 +78,7 @@ Cross-cutting invariants from day 1: every deck row is owner-scoped (all queries
 
 ## 6. Key flows
 
-1. **Edit + live preview** — CodeMirror change → debounce ~150ms → Marp render into preview pane. Autosave: dirty state → `PUT /api/decks/{id}/markdown` (debounced ~2s); server snapshots a `revisions` row at most every 5 minutes of changes.
+1. **Edit + live preview** — CodeMirror change → debounce ~150ms → Marp render into preview pane. Autosave: dirty state → `PATCH /api/decks/{id}` `{markdown}` (debounced ~2s; the general update endpoint from BRIEF-0002); server snapshots a `revisions` row at most every 5 minutes of changes.
 2. **Duplicate / file ops** — `POST /api/decks/{id}/duplicate` copies deck + assets. Import `.md` / export `.md` endpoints (Marp Markdown is the durable format, ADR-0002 contract).
 3. **Present** — `/present/{id}` fullscreen; keys (←/→/Space/Esc), touch swipe; speaker notes from HTML comments; presenter view (notes + next slide + clock) ships with BRIEF-0005.
 4. **PDF export** — button → `POST /api/decks/{id}/export/pdf` → chromiumoxide flow (§4) → streams PDF; cached under `/data/exports` keyed by deck revision.

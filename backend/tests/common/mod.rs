@@ -43,6 +43,7 @@ pub struct TestResponse {
     pub status: StatusCode,
     pub headers: HeaderMap,
     pub json: serde_json::Value,
+    pub text: String,
 }
 
 /// One request against the app; returns status + headers + parsed JSON body.
@@ -79,11 +80,28 @@ pub async fn send(
     let headers = response.headers().clone();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    let text = String::from_utf8_lossy(&bytes).into_owned();
     TestResponse {
         status,
         headers,
         json,
+        text,
     }
+}
+
+/// Register a fresh user on the app and return their session cookie.
+pub async fn signup(app: &Router, username: &str) -> String {
+    let response = send(
+        app,
+        "POST",
+        "/api/auth/register",
+        Some(serde_json::json!({ "username": username, "password": "password123" })),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::CREATED, "signup failed");
+    session_cookie(&response).expect("signup must set a session cookie")
 }
 
 /// Extract the session cookie ("name=value") from a response, if set.

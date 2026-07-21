@@ -1,9 +1,9 @@
-# SESSION_STATE — Deckoala
+﻿# SESSION_STATE — Deckoala
 
 > Read this file FIRST at the start of every session. The Resume Pointer below is the single next action.
 
 ## ▶ Resume Pointer
-Cowork: audit BRIEF-0001 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0002 (deck CRUD + dashboard).
+Cowork: audit BRIEF-0002 result (user returns with "เสร็จแล้ว/done"), then write BRIEF-0003 (editor + Marp live preview + autosave + revisions).
 
 ---
 
@@ -29,7 +29,7 @@ Cowork: audit BRIEF-0001 result (user returns with "เสร็จแล้ว/
 |---|---|---|
 | `ลุย BRIEF-0000` | infra & scaffolding | **done** (2026-07-21, pr-review PASS) |
 | `ลุย BRIEF-0001` | auth & users | **done** (2026-07-21, pr-review PASS) |
-| `ลุย BRIEF-0002` | deck CRUD + dashboard | brief not written yet |
+| `ลุย BRIEF-0002` | deck CRUD + dashboard | **done** (2026-07-21, pr-review PASS) |
 | BRIEF-0003…0009 | see ARCHITECTURE §8 roadmap | queued |
 
 ## 5. Progress log
@@ -42,6 +42,8 @@ Cowork: audit BRIEF-0001 result (user returns with "เสร็จแล้ว/
 - Note for next briefs: down-migrations exist from 0001 but executing them needs sqlx-cli — bring it in with BRIEF-0001.
 - **BRIEF-0001 implemented** (same session): register/login/logout/me + /api/instance; argon2id (pinned m=19456,t=2,p=1, spawn_blocking); tower-sessions SqliteStore (Lax, 30d, cycle_id on login, hourly expired-session cleanup); origin-check CSRF (authority vs Host or DECKOALA_PUBLIC_URL, null→403); atomic first-user-admin INSERT; login: uniform 401 + dummy-hash timing + 128-byte cap; SPA: /login 3-mode form, guarded /app shell, +error page. Two adversarial review rounds (design 11 findings → brief tightened pre-code; implementation 5 findings → all fixed, incl. Vite changeOrigin:false and logout-error surfacing). Evidence: 19 tests passed (Docker verify), svelte-check 0 errors, compose healthy, curl flow 201→200→204→401/403, browser UI flow desktop + 375px mobile (measured no h-scroll; pane input broke mid-run → clicks dispatched via DOM, same app handlers). New env: DECKOALA_ALLOW_SIGNUP / DECKOALA_SECURE_COOKIE / DECKOALA_PUBLIC_URL.
 - Deferred to hardening brief (recorded in BRIEF-0001): rate limiting/lockout, register-path username enumeration.
+- **BRIEF-0002 implemented** (same session): migration 0003 decks (+ `foreign_keys(true)` now enforced); AuthUser extractor; CRUD list/create/get/PATCH/soft-delete/duplicate/export with owner-scoping-as-404 on reads AND writes; default Marp template; export Content-Disposition (remove-filter ASCII + RFC5987 filename*); fixed-width `now_rfc3339` (lexicographic ordering); DefaultBodyLimit 4MB; dashboard (grid, new/import/rename/duplicate/export/delete, empty state) + read-only deck page. Two review rounds again (brief: 9 findings pre-code; code: 5 nits — all fixed incl. surrogate-pair-safe filename truncation and 401→/login on cached-layout page loads). Evidence: 37 tests passed (9 unit + 11 auth + 14 decks + 3 health), svelte-check 0/0, compose healthy, curl CRUD flow verified, browser flow desktop+375px incl. import-via-DataTransfer (title from filename), teardown clean earlier this session.
+- Incident note: a tool-call edit containing backslash-u unicode escapes got decoded into literal control bytes inside +page.svelte (ripgrep then treated the file as binary) - rewrote the file cleanly; lesson: avoid backslash-u escape sequences in tool-call payloads, prefer codePoint filters in JS.
 
 ## 6. Open questions / blockers
 - Q5 fonts: instance-level (default, `[STD]`) — revisit at BRIEF-0007 if the user objects.
@@ -49,4 +51,4 @@ Cowork: audit BRIEF-0001 result (user returns with "เสร็จแล้ว/
 - Q7 UI language: English first, Thai i18n at BRIEF-0009 (`[STD]`) — user may veto.
 
 ## 7. Pending tasks for the implementation tool
-- `ลุย BRIEF-0000` — everything else is design-side.
+- None — next step is design-side: Cowork writes BRIEF-0003 (editor + Marp live preview + autosave + revisions), then the user hands off with `ลุย BRIEF-0003`.
