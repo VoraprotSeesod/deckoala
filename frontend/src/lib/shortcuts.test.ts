@@ -91,11 +91,15 @@ describe('match', () => {
 		expect(match(key('?'), ctx({ route: 'other' }))).toBeNull();
 	});
 
-	it('goes inert while an overlay is open, except Escape', () => {
-		const open = ctx({ overlayOpen: true, route: 'dashboard' });
+	it('goes inert while an overlay is open, except Escape — including modified chords', () => {
+		const open = ctx({ overlayOpen: true, route: 'editor' });
 		expect(match(key('Escape'), open)).toBe('close');
 		expect(match(key('n'), open)).toBeNull();
 		expect(match(key('?'), open)).toBeNull();
+		// Mod-K must not open the palette on top of an open modal; Mod-S must not
+		// save the deck from behind the custom-CSS editor.
+		expect(match(key('k', { ctrl: true }), open)).toBeNull();
+		expect(match(key('s', { ctrl: true }), open)).toBeNull();
 	});
 
 	it('ignores Escape when nothing is open, so present mode keeps its own handler', () => {

@@ -121,6 +121,8 @@ networks: { deckoala-net: {} }
 | BRIEF-0010 | Admin settings + `root` bootstrap + AI slide generation (new user requirement) | 0002 |
 | BRIEF-0011 | MCP server + per-user API tokens (connect an external AI client) | 0010 |
 | BRIEF-0009b | Command palette + keyboard shortcuts (REQ-ANALYSIS §7) | 0009 |
+| BRIEF-0009c | Theme gallery + per-deck custom CSS + safe frontmatter writer (REQ-ANALYSIS §7) | 0009 |
+| BRIEF-0009d | In-app slide guide (usage manual) + easier image insertion (user request) | 0009c |
 | BRIEF-0012 | Visual editor, phase 2 (`[USER]` Q3 deferral) | 0004 |
 
 Briefs are written one (or a small buffer) at a time by the design side; only BRIEF-0000 exists so far.

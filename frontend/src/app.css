@@ -1,7 +1,13 @@
 :root {
+	/* Tells the browser to render NATIVE controls (the <select> option popup,
+	   ::placeholder, the text caret, scrollbars, spinners) with the matching
+	   system palette. Without it, dark mode leaves those light — a <select>'s
+	   dropdown and input placeholders come out dark-on-dark and invisible. */
+	color-scheme: light;
 	--dk-bg: #f8f8ff;
 	--dk-ink: #0b1215;
 	--dk-surface: #ffffff;
+	--dk-muted: #5b6672;
 	--dk-danger: #b3261e;
 	--dk-success: #157347;
 	--dk-warn: #b3862d;
@@ -14,9 +20,11 @@
    the present stage keeps its own fixed dark. Borders written as
    color-mix(var(--dk-ink) …) invert for free once --dk-ink flips light. */
 :root[data-theme='dark'] {
+	color-scheme: dark;
 	--dk-bg: #0f141a;
 	--dk-ink: #e7ebef;
 	--dk-surface: #1b232c;
+	--dk-muted: #9aa7b5;
 	--dk-danger: #ef6a63;
 	--dk-success: #4ecb8a;
 	--dk-warn: #d9b45a;
@@ -44,4 +52,19 @@ body {
 	color: var(--dk-ink);
 	font-family: 'Inter', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
 	-webkit-font-smoothing: antialiased;
+}
+
+/* Form-control legibility in both themes. `color-scheme` above handles most
+   browsers, but some Chromium builds still paint the <option> popup and the
+   placeholder from the element's own colors — so pin them to theme vars too.
+   Components may still override; these are only the defaults. */
+select,
+option {
+	color: var(--dk-ink);
+	background-color: var(--dk-surface);
+}
+
+::placeholder {
+	color: var(--dk-muted);
+	opacity: 1; /* Firefox dims placeholders by default; keep the chosen colour. */
 }

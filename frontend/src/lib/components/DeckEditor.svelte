@@ -13,6 +13,8 @@
 	import { reorderSlides } from '$lib/slides';
 	import { api, ApiError, type EditorAdapter, type RevisionMeta } from '$lib/api';
 	import { getPalette } from '$lib/palette.svelte';
+	import ThemeGallery from '$lib/components/ThemeGallery.svelte';
+	import CustomCssModal from '$lib/components/CustomCssModal.svelte';
 	import { t, formatDate, formatTime, settings } from '$lib/i18n.svelte';
 
 	// On /s/[token] there is no /app layout, so this is the no-op handle: the
@@ -153,6 +155,24 @@
 	let uploading = $state(false);
 	let dropActive = $state(false);
 
+	// --- theme gallery + custom CSS (BRIEF-0009c) ---
+	let themeGalleryOpen = $state(false);
+	let cssModalOpen = $state(false);
+
+	/** Apply a frontmatter edit (theme or custom CSS) through the same doc
+	 * pipeline as every other change, so undo/autosave/snapshot all behave,
+	 * then flush so an immediate PDF/present isn't stale. */
+	function applyMarkdown(next: string) {
+		applyEditorContent(next);
+		void flushPendingSave();
+	}
+
+	async function presentNow() {
+		await flushPendingSave();
+		if (presentHref) window.location.assign(presentHref);
+		else onPresent?.(currentMarkdown);
+	}
+
 	// --- AI generation (owner route only) ---
 	let aiOpen = $state(false);
 	let aiPrompt = $state('');
@@ -209,10 +229,32 @@
 	let view: EditorView | null = null;
 	let applyingRemote = false;
 
+	/** Persist any pending/in-flight edit and wait for it to land. PDF export
+	 * and present render from SERVER state, so a just-applied theme or custom
+	 * CSS (which autosaves on a 2s debounce) would otherwise export stale. */
+	async function flushPendingSave() {
+		if (saveTimer) {
+			clearTimeout(saveTimer);
+			saveTimer = null;
+		}
+		if (inFlightSave) {
+			try {
+				await inFlightSave;
+			} catch {
+				// a failed save surfaces via saveStatus; don't block the flush
+			}
+		}
+		if (dirty && !savingInFlight) {
+			inFlightSave = saveNow();
+			await inFlightSave;
+		}
+	}
+
 	async function exportPdf() {
 		pdfBusy = true;
 		errorMsg = '';
 		try {
+			await flushPendingSave();
 			await adapter.downloadPdf(title);
 		} catch (e) {
 			errorMsg = e instanceof ApiError ? e.message : t('editor.pdfFailed');
@@ -441,7 +483,11 @@
 				labelKey: 'cmd.save',
 				keywords: 'save write',
 				shortcut: ['Mod', 'S'],
-				run: () => void saveNow()
+				// Track the promise in inFlightSave so a later flush (PDF/present)
+				// awaits an explicit save that is still in flight.
+				run: () => {
+					inFlightSave = saveNow();
+				}
 			},
 			...(presentHref || onPresent
 				? [
@@ -450,13 +496,24 @@
 							section: 'action' as const,
 							labelKey: 'cmd.present',
 							keywords: 'present slideshow fullscreen',
-							run: () => {
-								if (presentHref) window.location.assign(presentHref);
-								else onPresent?.(currentMarkdown);
-							}
+							run: () => void presentNow()
 						}
 					]
 				: []),
+			{
+				id: 'page.theme',
+				section: 'action',
+				labelKey: 'cmd.theme',
+				keywords: 'theme gallery style look ธีม',
+				run: () => (themeGalleryOpen = true)
+			},
+			{
+				id: 'page.css',
+				section: 'action',
+				labelKey: 'cmd.customCss',
+				keywords: 'custom css style สไตล์',
+				run: () => (cssModalOpen = true)
+			},
 			{
 				id: 'page.pdf',
 				section: 'action',
@@ -714,6 +771,8 @@
 			{pdfBusy ? t('editor.pdfBusy') : t('editor.pdf')}
 		</button>
 		<a class="button" href={adapter.exportMdUrl} download>{t('editor.exportMd')}</a>
+		<button class="button" onclick={() => (themeGalleryOpen = true)}>{t('cmd.theme')}</button>
+		<button class="button" onclick={() => (cssModalOpen = true)}>{t('cmd.customCss')}</button>
 		<button class="button" class:active={panelOpen} onclick={togglePanel}>{t('editor.revisions')}</button>
 		{#if aiEnabled}
 			<button class="button ai" onclick={() => (aiOpen = true)}>{t('ai.button')}</button>
@@ -805,6 +864,19 @@
 		{/if}
 	</div>
 </article>
+
+<ThemeGallery
+	open={themeGalleryOpen}
+	markdown={currentMarkdown}
+	onApply={applyMarkdown}
+	onClose={() => (themeGalleryOpen = false)}
+/>
+<CustomCssModal
+	open={cssModalOpen}
+	markdown={currentMarkdown}
+	onApply={applyMarkdown}
+	onClose={() => (cssModalOpen = false)}
+/>
 
 {#if aiOpen}
 	<div

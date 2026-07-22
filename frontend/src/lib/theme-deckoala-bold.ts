@@ -1,15 +1,17 @@
-// The instance's default Marp theme — brand colors + Thai-capable fonts.
-// Registered into marp-core's theme set in $lib/marp.ts (BRIEF-0003).
-export const themeDeckoala = `/* @theme deckoala */
+// Bold Deckoala theme — light, oversized type and heavy headings for
+// high-impact keynote slides (BRIEF-0009c). Same brand palette and Thai-capable
+// fonts as the default; larger scale and stronger weights.
+export const themeDeckoalaBold = `/* @theme deckoala-bold */
 @import 'default';
 
 section {
 	background: #f8f8ff;
 	color: #0b1215;
 	font-family: 'Inter', 'Noto Sans Thai', system-ui, sans-serif;
-	font-size: 28px;
-	line-height: 1.55;
-	padding: 64px;
+	font-size: 34px;
+	line-height: 1.4;
+	font-weight: 500;
+	padding: 72px;
 }
 
 h1,
@@ -19,16 +21,27 @@ h4,
 h5,
 h6 {
 	color: #0b1215;
-	line-height: 1.25;
+	line-height: 1.1;
+	font-weight: 800;
+	letter-spacing: -0.01em;
 }
 
 h1 {
-	font-size: 1.9em;
+	font-size: 2.6em;
+}
+
+h2 {
+	font-size: 1.8em;
 }
 
 a {
 	color: #0b1215;
 	text-decoration: underline;
+	text-decoration-thickness: 0.12em;
+}
+
+strong {
+	font-weight: 800;
 }
 
 code {
@@ -41,7 +54,7 @@ code {
 pre {
 	background: rgba(11, 18, 21, 0.06);
 	padding: 0.7em 1em;
-	border-radius: 8px;
+	border-radius: 10px;
 }
 
 pre code {
@@ -50,9 +63,10 @@ pre code {
 }
 
 blockquote {
-	border-left: 4px solid rgba(11, 18, 21, 0.25);
+	border-left: 6px solid rgba(11, 18, 21, 0.3);
 	padding-left: 0.8em;
-	color: rgba(11, 18, 21, 0.75);
+	color: rgba(11, 18, 21, 0.8);
+	font-weight: 600;
 }
 
 table th {
@@ -63,9 +77,6 @@ section::after {
 	color: rgba(11, 18, 21, 0.45);
 }
 
-/* Layout utility classes, applied per slide with a Marp class directive
-   (works under html:false), e.g. \`<!-- _class: center -->\`. Documented in the
-   in-app slide guide (BRIEF-0009d). */
 section.columns {
 	column-count: 2;
 	column-gap: 1.5em;

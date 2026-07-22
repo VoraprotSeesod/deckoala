@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { translate, type Locale } from './messages';
+import { translate, messages, type Locale } from './messages';
+
+describe('catalog parity', () => {
+	// translate() falls back TH→EN silently, so a key present in en but missing
+	// in th would ship as English, not a visible raw key. Guard both directions
+	// (BRIEF-0009c review).
+	it('th and en have identical key sets', () => {
+		const en = Object.keys(messages.en).sort();
+		const th = Object.keys(messages.th).sort();
+		const missingInTh = en.filter((k) => !(k in messages.th));
+		const missingInEn = th.filter((k) => !(k in messages.en));
+		expect(missingInTh, 'keys missing from th').toEqual([]);
+		expect(missingInEn, 'keys missing from en').toEqual([]);
+		expect(th).toEqual(en);
+	});
+});
 
 describe('translate', () => {
 	it('resolves a string in the requested locale', () => {

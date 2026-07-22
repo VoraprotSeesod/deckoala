@@ -170,9 +170,42 @@ impl From<DeckMetaRow> for DeckMeta {
     }
 }
 
+const DEFAULT_THEME: &str = "deckoala";
+
+/// Derive the deck's theme from the first active `theme:` frontmatter line, so
+/// the stored `theme` column always agrees with what renders (BRIEF-0009c). A
+/// commented or indented `theme:` is ignored; quotes and trailing comments are
+/// stripped. Falls back to the default when there is no frontmatter directive.
+fn theme_from_markdown(md: &str) -> String {
+    let mut lines = md.lines();
+    if lines.next().map(str::trim_end) != Some("---") {
+        return DEFAULT_THEME.to_owned();
+    }
+    for line in lines {
+        let trimmed = line.trim_end();
+        if trimmed == "---" || trimmed == "..." {
+            break; // end of frontmatter
+        }
+        // Active top-level key only: no leading whitespace, not a comment.
+        if line.starts_with(char::is_whitespace) || line.trim_start().starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("theme:") {
+            let mut value = rest.trim();
+            if let Some(idx) = value.find(" #") {
+                value = value[..idx].trim();
+            }
+            value = value.trim_matches(|c| c == '"' || c == '\'').trim();
+            if value.is_empty() {
+                break;
+            }
+            return value.to_owned();
+        }
+    }
+    DEFAULT_THEME.to_owned()
+}
+
 /// New decks start as standard Marp Markdown (ADR-0002 durable contract).
-/// The `deckoala` theme CSS ships with the editor brief; Marp falls back to
-/// its default theme until then.
 fn default_template(title: &str) -> String {
     format!(
         "---\nmarp: true\ntheme: deckoala\npaginate: true\n---\n\n# {title}\n\n\
@@ -310,14 +343,16 @@ pub(crate) async fn create_deck_data(
 
     let id = Uuid::new_v4().to_string();
     let now = now_rfc3339();
+    let theme = theme_from_markdown(&markdown);
     sqlx::query(
-        "INSERT INTO decks (id, owner_id, title, markdown, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        "INSERT INTO decks (id, owner_id, title, markdown, theme, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
     )
     .bind(&id)
     .bind(owner_id)
     .bind(&title)
     .bind(&markdown)
+    .bind(&theme)
     .bind(&now)
     .execute(&state.db)
     .await
@@ -529,12 +564,16 @@ async fn update_in_tx(
         insert_revision(&mut *conn, id, &current.markdown, now).await?;
     }
 
+    // Keep the theme column in sync whenever the markdown changes.
+    let theme = markdown.as_ref().map(|m| theme_from_markdown(m));
     let done = sqlx::query(
         "UPDATE decks SET title = COALESCE(?1, title), markdown = COALESCE(?2, markdown), \
-         updated_at = ?3 WHERE id = ?4 AND owner_id = ?5 AND deleted_at IS NULL",
+         theme = COALESCE(?3, theme), updated_at = ?4 \
+         WHERE id = ?5 AND owner_id = ?6 AND deleted_at IS NULL",
     )
     .bind(title)
     .bind(markdown)
+    .bind(theme)
     .bind(now)
     .bind(id)
     .bind(user_id)
@@ -896,4 +935,39 @@ pub(crate) async fn md_export_core(state: &AppState, id: &str, owner_id: &str) -
             .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{theme_from_markdown, DEFAULT_THEME};
+
+    #[test]
+    fn reads_the_active_theme_directive() {
+        let md = "---\nmarp: true\ntheme: deckoala-dark\npaginate: true\n---\n\n# Hi\n";
+        assert_eq!(theme_from_markdown(md), "deckoala-dark");
+    }
+
+    #[test]
+    fn falls_back_without_frontmatter_or_directive() {
+        assert_eq!(theme_from_markdown("# just a body\n"), DEFAULT_THEME);
+        assert_eq!(
+            theme_from_markdown("---\nmarp: true\n---\n\n# Hi\n"),
+            DEFAULT_THEME
+        );
+    }
+
+    #[test]
+    fn ignores_commented_or_indented_theme() {
+        let commented = "---\nmarp: true\n# theme: hidden\n---\n\n# Hi\n";
+        assert_eq!(theme_from_markdown(commented), DEFAULT_THEME);
+        // An indented `theme:` inside a style block is not the directive.
+        let in_block = "---\nmarp: true\nstyle: |\n  theme: not-a-directive\n---\n\n# Hi\n";
+        assert_eq!(theme_from_markdown(in_block), DEFAULT_THEME);
+    }
+
+    #[test]
+    fn strips_quotes_and_trailing_comment() {
+        let md = "---\ntheme: \"deckoala-bold\" # nice\n---\n\nx\n";
+        assert_eq!(theme_from_markdown(md), "deckoala-bold");
+    }
 }

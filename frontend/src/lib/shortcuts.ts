@@ -108,6 +108,11 @@ export function match(event: KeyboardEvent, ctx: MatchContext): ActionId | null 
 
 	if (key === 'Escape') return ctx.overlayOpen ? 'close' : null;
 
+	// While ANY overlay is open, only Escape does anything — including modified
+	// chords. Otherwise Mod-K would open the palette on top of the theme/CSS/AI
+	// modal, and Mod-S would save the deck from behind the custom-CSS editor.
+	if (ctx.overlayOpen) return null;
+
 	const mod = hasMod(event, ctx.platform);
 	if (mod) {
 		// Ignore the OTHER platform's modifier so Ctrl+K on a Mac (a real
@@ -120,7 +125,6 @@ export function match(event: KeyboardEvent, ctx: MatchContext): ActionId | null 
 		return null;
 	}
 
-	if (ctx.overlayOpen) return null;
 	if (isTypingTarget(event.target)) return null;
 	// Held keys must not machine-gun an action: holding `n` would otherwise
 	// create a deck per repeat event.

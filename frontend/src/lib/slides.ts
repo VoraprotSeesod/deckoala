@@ -21,12 +21,16 @@ export type SplitResult = {
 };
 
 /** Index of the front-matter closing delimiter line, or -1. A lone leading
- * `---` with no `---`/`...` close is body, not front matter. */
-function frontMatterEnd(lines: string[]): number {
-	if (lines.length === 0 || lines[0].trim() !== '---') return -1;
+ * `---` with no `---`/`...` close is body, not front matter. Exported so the
+ * frontmatter writer (BRIEF-0009c) shares the SAME boundary Marpit uses —
+ * re-deriving it elsewhere is how a deck gets corrupted. */
+export function frontMatterEnd(lines: string[]): number {
+	// Fences are column-0 only (trailing space allowed). Matching `.trim()`
+	// would wrongly close the block at an INDENTED `---` line living inside a
+	// `style: |` literal block, so anchor to the line start (BRIEF-0009c).
+	if (lines.length === 0 || !/^---\s*$/.test(lines[0])) return -1;
 	for (let i = 1; i < lines.length; i++) {
-		const t = lines[i].trim();
-		if (t === '---' || t === '...') return i;
+		if (/^(?:---|\.\.\.)\s*$/.test(lines[i])) return i;
 	}
 	return -1;
 }
