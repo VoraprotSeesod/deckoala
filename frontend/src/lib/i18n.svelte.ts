@@ -10,6 +10,7 @@ export type Theme = 'light' | 'dark';
 
 const LOCALE_KEY = 'deckoala-locale';
 const THEME_KEY = 'deckoala-theme';
+const TOOLBAR_KEY = 'deckoala-toolbar';
 
 function storedLocale(): Locale {
 	if (!browser) return DEFAULT_LOCALE;
@@ -24,12 +25,24 @@ function storedTheme(): Theme {
 	return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+function storedToolbar(): boolean {
+	if (!browser) return true;
+	return localStorage.getItem(TOOLBAR_KEY) !== 'off'; // default on
+}
+
 class Settings {
 	locale = $state<Locale>(storedLocale());
 	theme = $state<Theme>(storedTheme());
+	/** Editor formatting toolbar visibility (BRIEF-0012). */
+	showToolbar = $state<boolean>(storedToolbar());
 }
 
 export const settings = new Settings();
+
+export function toggleToolbar(): void {
+	settings.showToolbar = !settings.showToolbar;
+	if (browser) localStorage.setItem(TOOLBAR_KEY, settings.showToolbar ? 'on' : 'off');
+}
 
 /** Translate the key with the CURRENT locale (reactive: reading settings.locale
  * inside a template re-renders on toggle). */

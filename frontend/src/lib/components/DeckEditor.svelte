@@ -17,7 +17,10 @@
 	import CustomCssModal from '$lib/components/CustomCssModal.svelte';
 	import ImagePicker from '$lib/components/ImagePicker.svelte';
 	import SlideGuide from '$lib/components/SlideGuide.svelte';
-	import { t, formatDate, formatTime, settings } from '$lib/i18n.svelte';
+	import EditorToolbar from '$lib/components/EditorToolbar.svelte';
+	import type { Sel } from '$lib/md-format';
+	import { wrapInline } from '$lib/md-format';
+	import { t, formatDate, formatTime, settings, toggleToolbar } from '$lib/i18n.svelte';
 
 	// On /s/[token] there is no /app layout, so this is the no-op handle: the
 	// editor keeps Mod-S (save on demand) but has no palette to open.
@@ -188,6 +191,51 @@
 		});
 		applyingRemote = false;
 		syncFromEditor();
+	}
+
+	/** Apply a pure Markdown transform (BRIEF-0012). The read selection is
+	 * clamped to bodyStartOffset for EVERY transform (not just block insert), so
+	 * a click on a never-focused editor (selection {0,0}) can't reach the
+	 * frontmatter. Undo is one step per action; autosave + preview fire. */
+	/** Dispatch the transform result as a MINIMAL change (common prefix/suffix
+	 * unchanged) so CodeMirror keeps scroll position and undo granularity
+	 * instead of a whole-doc replace (BRIEF-0012 review). */
+	function dispatchResult(doc: string, next: Sel) {
+		if (!view) return;
+		let start = 0;
+		const cap = Math.min(doc.length, next.text.length);
+		while (start < cap && doc[start] === next.text[start]) start++;
+		let endOld = doc.length;
+		let endNew = next.text.length;
+		while (endOld > start && endNew > start && doc[endOld - 1] === next.text[endNew - 1]) {
+			endOld--;
+			endNew--;
+		}
+		applyingRemote = true;
+		view.dispatch({
+			changes: { from: start, to: endOld, insert: next.text.slice(start, endNew) },
+			selection: { anchor: next.from, head: next.to }
+		});
+		applyingRemote = false;
+		syncFromEditor();
+		view.focus();
+	}
+
+	function applyTransform(fn: (s: Sel) => Sel) {
+		if (!view || viewingRevision) return;
+		const doc = view.state.doc.toString();
+		const bodyStart = bodyStartOffset(doc);
+		const main = view.state.selection.main;
+		const from = Math.max(main.from, bodyStart);
+		const to = Math.max(main.to, bodyStart);
+		dispatchResult(doc, fn({ text: doc, from, to }));
+	}
+
+	/** Insert a block at the clamped caret (frontmatter-safe). */
+	function insertBlockAt(fn: (text: string, pos: number) => Sel) {
+		if (!view || viewingRevision) return;
+		const doc = view.state.doc.toString();
+		dispatchResult(doc, fn(doc, safeInsertPos()));
 	}
 
 	/** Apply a frontmatter edit (theme or custom CSS) through the same doc
@@ -748,6 +796,24 @@
 								palette.open();
 								return true;
 							}
+						},
+						{
+							// Bold — goes through the guarded applyTransform (revision
+							// lock + frontmatter clamp), beating basicSetup's keymap.
+							key: 'Mod-b',
+							preventDefault: true,
+							run: () => {
+								applyTransform((s) => wrapInline(s, '**'));
+								return true;
+							}
+						},
+						{
+							key: 'Mod-i',
+							preventDefault: true,
+							run: () => {
+								applyTransform((s) => wrapInline(s, '*'));
+								return true;
+							}
 						}
 					])
 				),
@@ -820,6 +886,13 @@
 		<button class="button" onclick={() => (themeGalleryOpen = true)}>{t('cmd.theme')}</button>
 		<button class="button" onclick={() => (cssModalOpen = true)}>{t('cmd.customCss')}</button>
 		<button class="button" onclick={() => (guideOpen = true)}>{t('cmd.guide')}</button>
+		<button
+			class="button"
+			class:active={settings.showToolbar}
+			onclick={toggleToolbar}
+			title={t('toolbar.toggle')}
+			aria-pressed={settings.showToolbar}>{t('toolbar.toggle')}</button
+		>
 		<button class="button" class:active={panelOpen} onclick={togglePanel}>{t('editor.revisions')}</button>
 		{#if aiEnabled}
 			<button class="button ai" onclick={() => (aiOpen = true)}>{t('ai.button')}</button>
@@ -871,6 +944,14 @@
 
 	<div class="workspace" class:panel-open={panelOpen}>
 		<div class="editor" class:drop-active={dropActive} data-tab-active={mobileTab === 'write'}>
+			{#if settings.showToolbar}
+				<EditorToolbar
+					disabled={!!viewingRevision}
+					apply={applyTransform}
+					insert={insertBlockAt}
+					onImage={() => (imagePickerOpen = true)}
+				/>
+			{/if}
 			<div class="cm-host" bind:this={editorContainer}></div>
 			{#if dropActive}<div class="drop-hint">{t('editor.dropImage')}</div>{/if}
 			{#if uploading}<div class="upload-hint">{t('editor.uploading')}</div>{/if}
@@ -1231,6 +1312,13 @@
 		background: var(--dk-surface);
 	}
 
+	/* Flex column so the formatting toolbar is a fixed row and the CM host fills
+	   the rest — the old `.cm-host { height: 100% }` would overflow otherwise. */
+	.editor {
+		display: flex;
+		flex-direction: column;
+	}
+
 	.editor.drop-active {
 		outline: 2.5px dashed var(--dk-ink);
 		outline-offset: -4px;
@@ -1258,7 +1346,8 @@
 	}
 
 	.cm-host {
-		height: 100%;
+		flex: 1;
+		min-height: 0;
 	}
 
 	.cm-host :global(.cm-editor) {
