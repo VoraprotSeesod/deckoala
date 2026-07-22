@@ -462,6 +462,19 @@ pub async fn shared_asset_upload(
     crate::assets::store_asset(&state, &deck_id, multipart).await
 }
 
+/// `GET /api/s/{token}/assets` — list the deck's assets over an EDIT share
+/// (view-only → 403, unknown/expired → 404), for the image picker's reuse grid.
+pub async fn shared_asset_list(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Response {
+    let deck_id = match resolve_editable(&state, &token).await {
+        Ok(deck_id) => deck_id,
+        Err(response) => return response,
+    };
+    crate::assets::list_assets(&state, &deck_id).await
+}
+
 pub async fn shared_export_pdf(
     State(state): State<AppState>,
     Path(token): Path<String>,

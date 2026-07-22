@@ -353,7 +353,9 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .route("/decks/{id}/export", get(decks::export))
         .route(
             "/decks/{id}/assets",
-            post(assets::upload).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+            post(assets::upload)
+                .get(assets::list)
+                .layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
         )
         .route("/decks/{id}/revisions", get(decks::revisions_list))
         .route("/decks/{id}/revisions/{rev_id}", get(decks::revision_get))
@@ -385,7 +387,9 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         )
         .route(
             "/s/{token}/assets",
-            post(shares::shared_asset_upload).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+            post(shares::shared_asset_upload)
+                .get(shares::shared_asset_list)
+                .layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
         )
         .route("/s/{token}/export/pdf", post(shares::shared_export_pdf))
         .route("/s/{token}/export", get(shares::shared_export_md))

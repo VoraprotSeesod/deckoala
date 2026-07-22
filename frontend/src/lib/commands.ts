@@ -55,6 +55,13 @@ export function baseCommands(ctx: CommandContext): Command[] {
 			run: () => ctx.navigate('/app')
 		},
 		{
+			id: 'nav.guide',
+			section: 'navigate',
+			labelKey: 'cmd.guideManual',
+			keywords: 'guide manual help syntax docs คู่มือ',
+			run: () => ctx.navigate('/app/guide')
+		},
+		{
 			id: 'nav.fonts',
 			section: 'navigate',
 			labelKey: 'cmd.fonts',

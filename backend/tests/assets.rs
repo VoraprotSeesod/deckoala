@@ -228,3 +228,138 @@ async fn assets_migration_roundtrip_to_v4() {
     .unwrap();
     assert_eq!(table, 1);
 }
+
+// --- asset listing (BRIEF-0009d) ------------------------------------------
+
+async fn create_share(app: &axum::Router, cookie: &str, deck_id: &str, permission: &str) -> String {
+    let r = send(
+        app,
+        "POST",
+        &format!("/api/decks/{deck_id}/shares"),
+        Some(json!({ "permission": permission })),
+        Some(cookie),
+        Some("http://localhost:8080"),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::CREATED, "share create failed");
+    r.json["token"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn owner_lists_only_their_deck_assets() {
+    let app = test_app("assets-list-owner").await;
+    let cookie = signup(&app, "owner").await;
+    let deck = make_deck(&app, &cookie).await;
+
+    // Empty to start.
+    let empty = send(
+        &app,
+        "GET",
+        &format!("/api/decks/{deck}/assets"),
+        None,
+        Some(&cookie),
+        None,
+    )
+    .await;
+    assert_eq!(empty.status, StatusCode::OK);
+    assert_eq!(empty.json.as_array().unwrap().len(), 0);
+
+    // Upload two, then list.
+    upload(
+        &app,
+        Some(&cookie),
+        &deck,
+        "a.png",
+        "image/png",
+        &tiny_png(),
+    )
+    .await;
+    upload(
+        &app,
+        Some(&cookie),
+        &deck,
+        "b.png",
+        "image/png",
+        &tiny_png(),
+    )
+    .await;
+    let list = send(
+        &app,
+        "GET",
+        &format!("/api/decks/{deck}/assets"),
+        None,
+        Some(&cookie),
+        None,
+    )
+    .await;
+    assert_eq!(list.status, StatusCode::OK);
+    let items = list.json.as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    // The shape the picker needs.
+    assert!(items[0]["url"]
+        .as_str()
+        .unwrap()
+        .starts_with(&format!("/assets/{deck}/")));
+    assert!(items[0]["originalName"].is_string());
+    assert!(items[0]["createdAt"].is_string());
+}
+
+#[tokio::test]
+async fn listing_a_foreign_deck_is_404() {
+    let app = test_app("assets-list-foreign").await;
+    let owner = signup(&app, "owner").await;
+    let stranger = signup(&app, "stranger").await;
+    let deck = make_deck(&app, &owner).await;
+    upload(&app, Some(&owner), &deck, "a.png", "image/png", &tiny_png()).await;
+
+    let res = send(
+        &app,
+        "GET",
+        &format!("/api/decks/{deck}/assets"),
+        None,
+        Some(&stranger),
+        None,
+    )
+    .await;
+    assert_eq!(res.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn share_edit_lists_assets_but_view_cannot() {
+    let app = test_app("assets-list-share").await;
+    let owner = signup(&app, "owner").await;
+    let deck = make_deck(&app, &owner).await;
+    upload(&app, Some(&owner), &deck, "a.png", "image/png", &tiny_png()).await;
+
+    let edit = create_share(&app, &owner, &deck, "edit").await;
+    let view = create_share(&app, &owner, &deck, "view").await;
+
+    // Edit token (anonymous) can list.
+    let edit_list = send(
+        &app,
+        "GET",
+        &format!("/api/s/{edit}/assets"),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(edit_list.status, StatusCode::OK);
+    assert_eq!(edit_list.json.as_array().unwrap().len(), 1);
+
+    // View token is edit-only-gated → 403.
+    let view_list = send(
+        &app,
+        "GET",
+        &format!("/api/s/{view}/assets"),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(view_list.status, StatusCode::FORBIDDEN);
+
+    // Unknown token → 404.
+    let bad = send(&app, "GET", "/api/s/nope/assets", None, None, None).await;
+    assert_eq!(bad.status, StatusCode::NOT_FOUND);
+}

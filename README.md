@@ -49,6 +49,12 @@ curl http://localhost:8321/api/health
 | `DECKOALA_ROOT_PASSWORD` | — (built-in `Admin123456@`) | Password for the `root` admin seeded on the **first** start with an empty database. Set it before first start on any reachable instance; otherwise change the default from Admin settings (the app warns until you do) |
 | `CHROME_BIN` | `/usr/bin/chromium` (image) | Chromium binary for PDF export |
 
+### Writing slides
+
+Decks are standard Marp Markdown. See the [slide authoring guide](docs/USER-GUIDE.md) —
+also available in the app under **Guide** — for how to center text, lay out columns,
+insert and size images, use a different font per slide, write math, and add speaker notes.
+
 ### Accounts
 
 A fresh instance seeds a bootstrap admin **`root`** with the password `Admin123456@` (override with `DECKOALA_ROOT_PASSWORD` **before** the first start). The app shows a persistent warning until that default is changed — do it from **Admin settings → Change password**. Seeding only happens when the database is empty and never touches an existing account; if you delete all users, the next account registered becomes the admin instead. Registration can be closed with `DECKOALA_ALLOW_SIGNUP=false`. Session cookies are HttpOnly/SameSite=Lax; on HTTPS set `DECKOALA_SECURE_COOKIE=true`. Mutating API requests from foreign origins are rejected — if your proxy rewrites `Host`, set `DECKOALA_PUBLIC_URL`.

@@ -35,6 +35,20 @@ export function frontMatterEnd(lines: string[]): number {
 	return -1;
 }
 
+/** Character offset where the slide body begins — just past the frontmatter
+ * fence (and its newline), or 0 when there is none. Inserts clamp to this so a
+ * snippet dropped while the caret sits at offset 0 (a freshly-loaded, never-
+ * focused editor) can't land ahead of the `---` fence and break frontmatter
+ * parsing (BRIEF-0009d). Works for LF or CRLF (line length includes the `\r`). */
+export function bodyStartOffset(md: string): number {
+	const lines = md.split('\n');
+	const fmEnd = frontMatterEnd(lines);
+	if (fmEnd === -1) return 0;
+	let offset = 0;
+	for (let i = 0; i <= fmEnd; i++) offset += lines[i].length + 1; // +1 for the '\n'
+	return Math.min(offset, md.length);
+}
+
 /** Split an LF-normalized deck into front matter + slide bodies. */
 export function splitDeck(md: string): SplitResult {
 	const lines = md.split('\n');

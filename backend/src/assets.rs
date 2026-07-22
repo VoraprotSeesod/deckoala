@@ -129,6 +129,73 @@ struct AssetDto {
     size_bytes: i64,
 }
 
+#[derive(sqlx::FromRow)]
+struct AssetRow {
+    id: String,
+    filename: String,
+    original_name: String,
+    mime: String,
+    size_bytes: i64,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssetListItem {
+    id: String,
+    url: String,
+    original_name: String,
+    mime: String,
+    size_bytes: i64,
+    created_at: String,
+}
+
+/// List a deck's uploaded assets, newest first. The caller must already be
+/// authorized to read the deck (owner route or share-edit route). No owner
+/// column on `assets` — scope is resolved via the parent deck by the caller.
+pub(crate) async fn list_assets(state: &AppState, deck_id: &str) -> Response {
+    let rows = sqlx::query_as::<_, AssetRow>(
+        "SELECT id, filename, original_name, mime, size_bytes, created_at FROM assets \
+         WHERE deck_id = ?1 ORDER BY created_at DESC",
+    )
+    .bind(deck_id)
+    .fetch_all(&state.db)
+    .await;
+    match rows {
+        Ok(rows) => Json(
+            rows.into_iter()
+                .map(|r| AssetListItem {
+                    url: format!("/assets/{deck_id}/{}", r.filename),
+                    id: r.id,
+                    original_name: r.original_name,
+                    mime: r.mime,
+                    size_bytes: r.size_bytes,
+                    created_at: r.created_at,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    }
+}
+
+/// Owner route: `GET /api/decks/{id}/assets` — 404 for a foreign/deleted deck.
+pub async fn list(
+    State(state): State<AppState>,
+    AuthUser(user_id): AuthUser,
+    Path(deck_id): Path<String>,
+) -> Response {
+    if !safe_segment(&deck_id) {
+        return not_found();
+    }
+    match owner_owns_deck(&state, &deck_id, &user_id).await {
+        Ok(true) => {}
+        Ok(false) => return not_found(),
+        Err(response) => return response,
+    }
+    list_assets(&state, &deck_id).await
+}
+
 pub async fn upload(
     State(state): State<AppState>,
     AuthUser(user_id): AuthUser,

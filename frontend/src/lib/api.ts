@@ -102,6 +102,8 @@ export type UploadedAsset = {
 	sizeBytes: number;
 };
 
+export type DeckAsset = UploadedAsset & { createdAt: string };
+
 export type FontInfo = {
 	id: string;
 	family: string;
@@ -152,6 +154,7 @@ export type EditorAdapter = {
 	getRevision(revId: string): Promise<Revision>;
 	restoreRevision(revId: string): Promise<Deck>;
 	uploadAsset(file: File): Promise<UploadedAsset>;
+	listAssets(): Promise<DeckAsset[]>;
 	downloadPdf(title: string): Promise<void>;
 	exportMdUrl: string;
 };
@@ -291,7 +294,8 @@ export const api = {
 		// FormData sets its own multipart Content-Type/boundary — do NOT pass
 		// a JSON content-type header here.
 		upload: (deckId: string, file: File) =>
-			uploadFileTo<UploadedAsset>(`/api/decks/${deckId}/assets`, file)
+			uploadFileTo<UploadedAsset>(`/api/decks/${deckId}/assets`, file),
+		list: (deckId: string) => request<DeckAsset[]>(`/api/decks/${deckId}/assets`)
 	},
 	// Owner-side share-link management for a deck.
 	shares: {
@@ -318,6 +322,7 @@ export const api = {
 		},
 		uploadAsset: (token: string, file: File) =>
 			uploadFileTo<UploadedAsset>(`/api/s/${token}/assets`, file),
+		listAssets: (token: string) => request<DeckAsset[]>(`/api/s/${token}/assets`),
 		exportMdUrl: (token: string) => `/api/s/${token}/export`,
 		downloadPdf: (token: string, fallbackTitle: string) =>
 			downloadPdfFrom(`/api/s/${token}/export/pdf`, fallbackTitle)
@@ -343,6 +348,7 @@ export function ownerAdapter(deckId: string): EditorAdapter {
 		getRevision: (revId) => api.revisions.get(deckId, revId),
 		restoreRevision: (revId) => api.revisions.restore(deckId, revId),
 		uploadAsset: (file) => api.assets.upload(deckId, file),
+		listAssets: () => api.assets.list(deckId),
 		downloadPdf: (title) => api.decks.downloadPdf(deckId, title),
 		exportMdUrl: api.decks.exportUrl(deckId)
 	};
@@ -356,6 +362,7 @@ export function sharedAdapter(token: string): EditorAdapter {
 		getRevision: (revId) => api.shared.revisions.get(token, revId),
 		restoreRevision: (revId) => api.shared.revisions.restore(token, revId),
 		uploadAsset: (file) => api.shared.uploadAsset(token, file),
+		listAssets: () => api.shared.listAssets(token),
 		downloadPdf: (title) => api.shared.downloadPdf(token, title),
 		exportMdUrl: api.shared.exportMdUrl(token)
 	};

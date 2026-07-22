@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitDeck, joinDeck, reorderSlides } from './slides';
+import { splitDeck, joinDeck, reorderSlides, bodyStartOffset } from './slides';
 import { renderDeck } from './marp';
 
 const FM = '---\nmarp: true\ntheme: deckoala\n---';
@@ -116,5 +116,25 @@ describe('reorderSlides', () => {
 		expect(out).toContain('# A');
 		expect(out).toContain('# B');
 		expect(out.indexOf('# B')).toBeLessThan(out.indexOf('# A'));
+	});
+});
+
+describe('bodyStartOffset', () => {
+	it('returns the offset just past the frontmatter fence', () => {
+		const md = '---\nmarp: true\ntheme: deckoala\n---\n\n# Body\n';
+		const off = bodyStartOffset(md);
+		// Everything before the offset is exactly the frontmatter block + newline.
+		expect(md.slice(0, off)).toBe('---\nmarp: true\ntheme: deckoala\n---\n');
+		expect(md.slice(off)).toBe('\n# Body\n');
+	});
+
+	it('is 0 when there is no frontmatter', () => {
+		expect(bodyStartOffset('# Just a body\n')).toBe(0);
+	});
+
+	it('handles CRLF decks', () => {
+		const md = '---\r\nmarp: true\r\n---\r\n\r\n# Body\r\n';
+		const off = bodyStartOffset(md);
+		expect(md.slice(0, off)).toBe('---\r\nmarp: true\r\n---\r\n');
 	});
 });

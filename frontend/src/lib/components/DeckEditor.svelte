@@ -10,11 +10,13 @@
 	import { tags } from '@lezer/highlight';
 	import 'katex/dist/katex.min.css';
 	import { renderDeck } from '$lib/marp';
-	import { reorderSlides } from '$lib/slides';
+	import { reorderSlides, bodyStartOffset } from '$lib/slides';
 	import { api, ApiError, type EditorAdapter, type RevisionMeta } from '$lib/api';
 	import { getPalette } from '$lib/palette.svelte';
 	import ThemeGallery from '$lib/components/ThemeGallery.svelte';
 	import CustomCssModal from '$lib/components/CustomCssModal.svelte';
+	import ImagePicker from '$lib/components/ImagePicker.svelte';
+	import SlideGuide from '$lib/components/SlideGuide.svelte';
 	import { t, formatDate, formatTime, settings } from '$lib/i18n.svelte';
 
 	// On /s/[token] there is no /app layout, so this is the no-op handle: the
@@ -158,6 +160,35 @@
 	// --- theme gallery + custom CSS (BRIEF-0009c) ---
 	let themeGalleryOpen = $state(false);
 	let cssModalOpen = $state(false);
+
+	// --- slide guide + image picker (BRIEF-0009d) ---
+	let guideOpen = $state(false);
+	let imagePickerOpen = $state(false);
+
+	/** Insert text at the editor cursor, through the same shadow-DOM/CRLF-safe
+	 * dispatch path uploadAndInsert uses. */
+	/** Never insert into or before the frontmatter: a freshly-loaded editor has
+	 * its caret at offset 0, and the Guide/Image buttons can fire before the
+	 * user has clicked in — inserting at 0 would push the `---` fence off line 1
+	 * and break frontmatter parsing (BRIEF-0009d review). */
+	function safeInsertPos(): number {
+		if (!view) return 0;
+		const doc = view.state.doc.toString();
+		return Math.max(view.state.selection.main.head, bodyStartOffset(doc));
+	}
+
+	function insertAtCursor(text: string) {
+		if (!view || viewingRevision) return;
+		const snippet = text.endsWith('\n') ? text : `${text}\n`;
+		const pos = safeInsertPos();
+		applyingRemote = true;
+		view.dispatch({
+			changes: { from: pos, insert: snippet },
+			selection: { anchor: pos + snippet.length }
+		});
+		applyingRemote = false;
+		syncFromEditor();
+	}
 
 	/** Apply a frontmatter edit (theme or custom CSS) through the same doc
 	 * pipeline as every other change, so undo/autosave/snapshot all behave,
@@ -383,7 +414,7 @@
 				const asset = await adapter.uploadAsset(file);
 				if (deckId !== id || saveEpoch !== epoch || viewingRevision || !view) return;
 				const snippet = `![${altText(asset.originalName)}](${asset.url})\n`;
-				const pos = view.state.selection.main.head;
+				const pos = safeInsertPos(); // never land ahead of the frontmatter
 				applyingRemote = true;
 				view.dispatch({
 					changes: { from: pos, insert: snippet },
@@ -513,6 +544,20 @@
 				labelKey: 'cmd.customCss',
 				keywords: 'custom css style สไตล์',
 				run: () => (cssModalOpen = true)
+			},
+			{
+				id: 'page.image',
+				section: 'action',
+				labelKey: 'cmd.image',
+				keywords: 'image picture insert รูป ภาพ',
+				run: () => (imagePickerOpen = true)
+			},
+			{
+				id: 'page.guide',
+				section: 'action',
+				labelKey: 'cmd.guide',
+				keywords: 'guide help syntax manual คู่มือ',
+				run: () => (guideOpen = true)
 			},
 			{
 				id: 'page.pdf',
@@ -771,8 +816,10 @@
 			{pdfBusy ? t('editor.pdfBusy') : t('editor.pdf')}
 		</button>
 		<a class="button" href={adapter.exportMdUrl} download>{t('editor.exportMd')}</a>
+		<button class="button" onclick={() => (imagePickerOpen = true)}>{t('cmd.image')}</button>
 		<button class="button" onclick={() => (themeGalleryOpen = true)}>{t('cmd.theme')}</button>
 		<button class="button" onclick={() => (cssModalOpen = true)}>{t('cmd.customCss')}</button>
+		<button class="button" onclick={() => (guideOpen = true)}>{t('cmd.guide')}</button>
 		<button class="button" class:active={panelOpen} onclick={togglePanel}>{t('editor.revisions')}</button>
 		{#if aiEnabled}
 			<button class="button ai" onclick={() => (aiOpen = true)}>{t('ai.button')}</button>
@@ -877,6 +924,13 @@
 	onApply={applyMarkdown}
 	onClose={() => (cssModalOpen = false)}
 />
+<ImagePicker
+	open={imagePickerOpen}
+	{adapter}
+	onInsert={insertAtCursor}
+	onClose={() => (imagePickerOpen = false)}
+/>
+<SlideGuide open={guideOpen} onInsert={insertAtCursor} onClose={() => (guideOpen = false)} />
 
 {#if aiOpen}
 	<div
