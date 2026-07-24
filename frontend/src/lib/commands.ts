@@ -55,6 +55,13 @@ export function baseCommands(ctx: CommandContext): Command[] {
 			run: () => ctx.navigate('/app')
 		},
 		{
+			id: 'nav.research',
+			section: 'navigate',
+			labelKey: 'cmd.research',
+			keywords: 'research papers pdf sources งานวิจัย',
+			run: () => ctx.navigate('/app/research')
+		},
+		{
 			id: 'nav.guide',
 			section: 'navigate',
 			labelKey: 'cmd.guideManual',

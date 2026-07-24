@@ -178,6 +178,7 @@
 		</a>
 		<div class="session">
 			{#if logoutError}<span class="logout-error" role="alert">{logoutError}</span>{/if}
+			<a class="navlink" href="/app/research">{t('nav.research')}</a>
 			<a class="navlink" href="/app/guide">{t('nav.guide')}</a>
 			<a class="navlink" href="/app/fonts">{t('nav.fonts')}</a>
 			<a class="navlink" href="/app/tokens">{t('nav.tokens')}</a>

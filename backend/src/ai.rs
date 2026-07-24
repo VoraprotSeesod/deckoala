@@ -23,6 +23,9 @@ const MAX_PROMPT_BYTES: usize = 4 * 1024;
 /// Decks reach 1 MB; echoing one back to the provider is both a cost and a
 /// payload bomb, so only a bounded slice of context is ever sent.
 const MAX_EXISTING_BYTES: usize = 32 * 1024;
+/// Budget for research source text (BRIEF-0014), split across the selected
+/// documents so prompt + deck + research still fit the model.
+const MAX_RESEARCH_BYTES: usize = 24 * 1024;
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const TIMEOUT_SECS: u64 = 60;
 /// Longest a request may wait for a free generation slot before being told to
@@ -94,6 +97,10 @@ pub struct GenerateRequest {
     prompt: String,
     #[serde(default)]
     existing_markdown: Option<String>,
+    /// Research documents to draw source material from (BRIEF-0014). Only the
+    /// CALLER's own documents are ever loaded; anything else is ignored.
+    #[serde(default)]
+    research_ids: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -156,11 +163,24 @@ pub async fn generate(
         );
     }
 
-    let user_content = if existing.trim().is_empty() {
-        prompt.clone()
-    } else {
-        format!("Existing deck:\n\n{existing}\n\n---\n\nRequest: {prompt}")
-    };
+    // Source research first, then the existing deck, then the request — the
+    // context is assembled server-side from the CALLER's own documents only.
+    let research =
+        crate::research::context_for(&state, &user_id, &body.research_ids, MAX_RESEARCH_BYTES)
+            .await;
+
+    let mut user_content = String::new();
+    if !research.trim().is_empty() {
+        user_content.push_str(
+            "Source research (base the slides on this material; do not invent figures or claims):\n\n",
+        );
+        user_content.push_str(&research);
+        user_content.push_str("\n---\n\n");
+    }
+    if !existing.trim().is_empty() {
+        user_content.push_str(&format!("Existing deck:\n\n{existing}\n\n---\n\n"));
+    }
+    user_content.push_str(&format!("Request: {prompt}"));
 
     let key = cfg.api_key.clone().unwrap_or_default();
     let anthropic = cfg.provider == PROVIDER_ANTHROPIC;

@@ -121,12 +121,12 @@ fn sanitize_name(raw: &str) -> String {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct AssetDto {
-    id: String,
-    url: String,
-    original_name: String,
-    mime: String,
-    size_bytes: i64,
+pub(crate) struct StoredAsset {
+    pub(crate) id: String,
+    pub(crate) url: String,
+    pub(crate) original_name: String,
+    pub(crate) mime: String,
+    pub(crate) size_bytes: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -246,21 +246,48 @@ pub(crate) async fn store_asset(
     if bytes.len() > MAX_IMAGE_BYTES {
         return json_error(StatusCode::PAYLOAD_TOO_LARGE, "image exceeds 5 MB");
     }
-    let Some((mime, ext)) = sniff_image(&bytes) else {
-        return json_error(
+    match store_bytes(state, deck_id, &original_name, &bytes).await {
+        Ok(asset) => (StatusCode::CREATED, Json(asset)).into_response(),
+        Err(StoreError::UnsupportedType) => json_error(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "only PNG, JPEG, GIF or WebP images are allowed",
-        );
+        ),
+        Err(StoreError::Storage) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "storage error"),
+        Err(StoreError::Db) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error"),
+    }
+}
+
+pub(crate) enum StoreError {
+    UnsupportedType,
+    Storage,
+    Db,
+}
+
+/// Sniff, write and record image bytes as a deck asset. The single storage path
+/// for every producer — the owner upload, the share-token upload, and the
+/// research-figure attach (BRIEF-0014) — so the sniff and the row/file layout
+/// can never diverge. The CALLER must have already authorized the deck.
+pub(crate) async fn store_bytes(
+    state: &AppState,
+    deck_id: &str,
+    original_name: &str,
+    bytes: &[u8],
+) -> Result<StoredAsset, StoreError> {
+    if !safe_segment(deck_id) {
+        return Err(StoreError::Storage);
+    }
+    let Some((mime, ext)) = sniff_image(bytes) else {
+        return Err(StoreError::UnsupportedType);
     };
 
     let id = Uuid::new_v4().to_string();
     let filename = format!("{id}.{ext}");
     let dir: PathBuf = state.data_dir.join("assets").join(deck_id);
     if tokio::fs::create_dir_all(&dir).await.is_err() {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+        return Err(StoreError::Storage);
     }
-    if tokio::fs::write(dir.join(&filename), &bytes).await.is_err() {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "storage error");
+    if tokio::fs::write(dir.join(&filename), bytes).await.is_err() {
+        return Err(StoreError::Storage);
     }
 
     let size_bytes = bytes.len() as i64;
@@ -272,7 +299,7 @@ pub(crate) async fn store_asset(
     .bind(&id)
     .bind(deck_id)
     .bind(&filename)
-    .bind(&original_name)
+    .bind(original_name)
     .bind(mime)
     .bind(size_bytes)
     .bind(&now)
@@ -280,20 +307,16 @@ pub(crate) async fn store_asset(
     .await;
     if inserted.is_err() {
         let _ = tokio::fs::remove_file(dir.join(&filename)).await;
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "database error");
+        return Err(StoreError::Db);
     }
 
-    (
-        StatusCode::CREATED,
-        Json(AssetDto {
-            url: format!("/assets/{deck_id}/{filename}"),
-            id,
-            original_name,
-            mime: mime.to_owned(),
-            size_bytes,
-        }),
-    )
-        .into_response()
+    Ok(StoredAsset {
+        url: format!("/assets/{deck_id}/{filename}"),
+        id,
+        original_name: original_name.to_owned(),
+        mime: mime.to_owned(),
+        size_bytes,
+    })
 }
 
 pub async fn serve(

@@ -196,7 +196,15 @@ async fn initialize_tools_list_and_notifications() {
         .collect();
     assert_eq!(
         names,
-        ["list_decks", "get_deck", "create_deck", "update_deck"]
+        [
+            "list_decks",
+            "get_deck",
+            "create_deck",
+            "list_research",
+            "list_research_figures",
+            "attach_figure",
+            "update_deck",
+        ]
     );
 
     // A notification (no `id`) must get no JSON-RPC reply at all.

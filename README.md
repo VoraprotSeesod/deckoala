@@ -49,6 +49,16 @@ curl http://localhost:8321/api/health
 | `DECKOALA_ROOT_PASSWORD` | — (built-in `Admin123456@`) | Password for the `root` admin seeded on the **first** start with an empty database. Set it before first start on any reachable instance; otherwise change the default from Admin settings (the app warns until you do) |
 | `CHROME_BIN` | `/usr/bin/chromium` (image) | Chromium binary for PDF export |
 
+### Research library
+
+Upload the papers your slides draw from under **Research** (PDF, or `.txt`/`.md`). The text is extracted **on the
+server** — no outbound call — and, when you generate slides with AI, you pick which papers to source from so the deck
+is built from your research rather than invented. Figures embedded in a PDF are pulled out too and can be dropped onto
+a slide from the image picker's **From research** tab (or over MCP).
+
+Limits: 10 MB per upload, 50 documents per user, and figures are extracted as **JPEG** only (up to 40 per document,
+5 MB each, at least 64×64) — a scanned/image-only PDF has no text to read and is rejected with a message saying so.
+
 ### Writing slides
 
 Decks are standard Marp Markdown. See the [slide authoring guide](docs/USER-GUIDE.md) —
@@ -78,8 +88,12 @@ decks. Mint a token under **API tokens** in the app; the value is shown once and
 token acts as the user who created it and is scoped to that user's decks; revoking it takes effect immediately.
 There is deliberately no delete tool.
 
-Tools: `list_decks`, `get_deck`, `create_deck`, `update_deck` (an update snapshots the previous content as a revision,
-exactly like the editor does).
+Deck tools: `list_decks`, `get_deck`, `create_deck`, `update_deck` (an update snapshots the previous content as a
+revision, exactly like the editor does).
+
+Research tools: `list_research` (your uploaded papers), `list_research_figures` (figures extracted from one of them),
+and `attach_figure` — copies a figure into a deck and returns the Markdown to place it, so an AI client can
+illustrate slides with the paper's own charts. All are scoped to the token's owner.
 
 For an HTTP-capable client, point it at the endpoint with an `Authorization` header:
 

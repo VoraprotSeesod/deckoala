@@ -11,6 +11,14 @@ axum = { version = "0.8", features = ["multipart"] }
 chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
 futures = "0.3"
 hmac = "0.12"
+# Local, offline PDF text + figure extraction for the research library
+# (BRIEF-0014). Adds no outbound call — extraction is entirely server-side.
+# `lopdf` is already in pdf-extract's tree; the direct dep is for image
+# XObjects, which pdf-extract does not expose. `flate2` (also already in that
+# tree) undoes a FlateDecode wrapper preceding DCTDecode in a filter chain.
+pdf-extract = "0.7"
+lopdf = "0.34"
+flate2 = "1"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 sha2 = "0.10"

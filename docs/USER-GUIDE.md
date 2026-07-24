@@ -72,6 +72,25 @@ then size images with `w:` and `h:`.
 ![Wide banner w:640 h:200](/assets/your-deck/banner.jpg)
 ```
 
+### Reusing a figure from a paper
+
+If you uploaded a PDF on the **Research** page, its embedded figures are pulled out
+for you. In the **Image** dialog open the **From research** tab and pick one — it is
+copied into the deck and the Markdown is inserted, so the chart in your slide is the
+paper's own. Give it a real description in the alt text; the copy arrives with a
+generated filename.
+
+## Writing slides from your research
+
+Upload the papers a deck draws on under **Research** (PDF, or `.txt`/`.md`). Deckoala
+reads the text on the server — the file never leaves your instance except as the AI
+prompt you explicitly send. When you press **AI**, tick the papers to source from and
+the generated slides are built from that material instead of invented.
+
+Because the model sees the paper's text, keep the prompt about *shape* ("a 10-slide
+summary, one finding per slide") and let the research supply the facts. Always read
+the result: an AI can still misattribute a number.
+
 ## A different font per slide
 
 1. Install the font on the **Fonts** page.

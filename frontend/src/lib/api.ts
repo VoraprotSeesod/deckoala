@@ -104,6 +104,32 @@ export type UploadedAsset = {
 
 export type DeckAsset = UploadedAsset & { createdAt: string };
 
+/** A research document in the user's library (BRIEF-0014). */
+export type ResearchDoc = {
+	id: string;
+	originalName: string;
+	mime: string;
+	charCount: number;
+	createdAt: string;
+};
+
+export type ResearchPreview = {
+	id: string;
+	originalName: string;
+	snippet: string;
+	charCount: number;
+};
+
+/** A figure extracted from a research PDF. */
+export type ResearchFigure = {
+	id: string;
+	url: string;
+	mime: string;
+	width: number;
+	height: number;
+	page: number;
+};
+
 export type FontInfo = {
 	id: string;
 	family: string;
@@ -218,11 +244,22 @@ export const api = {
 			request<AdminSettings>('/api/admin/settings', { method: 'PUT', body: JSON.stringify(body) })
 	},
 	ai: {
-		generate: (prompt: string, existingMarkdown?: string) =>
+		generate: (prompt: string, existingMarkdown?: string, researchIds: string[] = []) =>
 			request<{ markdown: string }>('/api/ai/generate', {
 				method: 'POST',
-				body: JSON.stringify({ prompt, existingMarkdown })
+				body: JSON.stringify({ prompt, existingMarkdown, researchIds })
 			})
+	},
+	// Research library (BRIEF-0014) — per user, reusable across decks.
+	research: {
+		list: () => request<ResearchDoc[]>('/api/research'),
+		upload: (file: File) => uploadFileTo<ResearchDoc>('/api/research', file),
+		preview: (id: string) => request<ResearchPreview>(`/api/research/${id}/preview`),
+		figures: (id: string) => request<ResearchFigure[]>(`/api/research/${id}/figures`),
+		remove: (id: string) => request<void>(`/api/research/${id}`, { method: 'DELETE' }),
+		/** Copy a research figure into a deck's assets so it can be placed on a slide. */
+		attachFigure: (deckId: string, figureId: string) =>
+			request<UploadedAsset>(`/api/decks/${deckId}/figures/${figureId}`, { method: 'POST' })
 	},
 	tokens: {
 		list: () => request<ApiToken[]>('/api/tokens'),

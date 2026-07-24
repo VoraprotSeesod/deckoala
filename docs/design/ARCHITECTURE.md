@@ -124,5 +124,7 @@ networks: { deckoala-net: {} }
 | BRIEF-0009c | Theme gallery + per-deck custom CSS + safe frontmatter writer (REQ-ANALYSIS §7) | 0009 |
 | BRIEF-0009d | In-app slide guide (usage manual) + easier image insertion (user request) | 0009c |
 | BRIEF-0012 | Visual editor, phase 2: formatting toolbar + block inserter (`[USER]` Q3 deferral) | 0009d |
+| BRIEF-0013 | Gemini as a third AI provider (user request) | 0010 |
+| BRIEF-0014 | Research library: server-side PDF/text extraction as AI source context + figure extraction (image picker + MCP) | 0013, 0011 |
 
 Briefs are written one (or a small buffer) at a time by the design side; only BRIEF-0000 exists so far.

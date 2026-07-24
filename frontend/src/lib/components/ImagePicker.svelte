@@ -1,17 +1,27 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { ApiError, type DeckAsset, type EditorAdapter } from '$lib/api';
+	import {
+		api,
+		ApiError,
+		type DeckAsset,
+		type EditorAdapter,
+		type ResearchDoc,
+		type ResearchFigure
+	} from '$lib/api';
 	import { imageMarkdown, sanitizeAlt, type ImageMode, type ImageSize, type BgVariant } from '$lib/slide-syntax';
 	import { t } from '$lib/i18n.svelte';
 
 	type Props = {
 		open: boolean;
 		adapter: EditorAdapter;
+		/** Set ONLY on the owner route — the research library is per user, so the
+		 * "From research" tab is unavailable on anonymous share links. */
+		ownerDeckId?: string;
 		/** Insert the built markdown at the editor cursor. */
 		onInsert: (markdown: string) => void;
 		onClose: () => void;
 	};
-	let { open, adapter, onInsert, onClose }: Props = $props();
+	let { open, adapter, ownerDeckId, onInsert, onClose }: Props = $props();
 
 	let panel = $state<HTMLDivElement | null>(null);
 	let restoreTo: HTMLElement | null = null;
@@ -20,6 +30,12 @@
 	let loading = $state(false);
 	let errorMsg = $state('');
 	let fileInput = $state<HTMLInputElement | null>(null);
+
+	// "From research" tab (BRIEF-0014) — figures pulled out of the user's papers.
+	let tab = $state<'deck' | 'research'>('deck');
+	let researchDocs = $state<ResearchDoc[]>([]);
+	let openDocId = $state('');
+	let figures = $state<ResearchFigure[]>([]);
 
 	// The image currently being configured for insertion (uploaded or reused).
 	let chosen = $state<{ url: string; name: string } | null>(null);
@@ -54,6 +70,50 @@
 			restoreTo = null;
 		};
 	});
+
+	async function loadResearch() {
+		loading = true;
+		errorMsg = '';
+		try {
+			researchDocs = await api.research.list();
+		} catch (e) {
+			errorMsg = e instanceof ApiError ? e.message : t('common.somethingWrong');
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function openDoc(docId: string) {
+		if (openDocId === docId) {
+			openDocId = '';
+			figures = [];
+			return;
+		}
+		openDocId = docId;
+		figures = [];
+		try {
+			figures = await api.research.figures(docId);
+		} catch (e) {
+			errorMsg = e instanceof ApiError ? e.message : t('common.somethingWrong');
+		}
+	}
+
+	/** Copy a research figure into this deck's assets, then configure it for
+	 * insertion like any other image. */
+	async function useFigure(figure: ResearchFigure) {
+		if (!ownerDeckId) return;
+		loading = true;
+		errorMsg = '';
+		try {
+			const asset = await api.research.attachFigure(ownerDeckId, figure.id);
+			await loadAssets();
+			choose(asset.url, asset.originalName);
+		} catch (e) {
+			errorMsg = e instanceof ApiError ? e.message : t('common.somethingWrong');
+		} finally {
+			loading = false;
+		}
+	}
 
 	function choose(url: string, name: string) {
 		chosen = { url, name };
@@ -161,32 +221,94 @@
 				</div>
 			{:else}
 				<div class="browse">
-					<button type="button" class="upload" onclick={() => fileInput?.click()} disabled={loading}>
-						{t('picker.upload')}
-					</button>
-					<input
-						bind:this={fileInput}
-						type="file"
-						accept="image/png,image/jpeg,image/gif,image/webp"
-						hidden
-						onchange={onUpload}
-					/>
-					<h3>{t('picker.reuse')}</h3>
-					{#if loading}
-						<p class="subtle">{t('picker.loading')}</p>
-					{:else if assets.length === 0}
-						<p class="subtle">{t('picker.empty')}</p>
+					{#if ownerDeckId}
+						<!-- Research figures are a per-user library, so this tab exists
+						     only on the owner route (not anonymous share links). -->
+						<div class="tabs" role="tablist">
+							<button
+								type="button"
+								role="tab"
+								aria-selected={tab === 'deck'}
+								class:active={tab === 'deck'}
+								onclick={() => (tab = 'deck')}>{t('picker.tabDeck')}</button
+							>
+							<button
+								type="button"
+								role="tab"
+								aria-selected={tab === 'research'}
+								class:active={tab === 'research'}
+								onclick={() => {
+									tab = 'research';
+									if (researchDocs.length === 0) void loadResearch();
+								}}>{t('picker.tabResearch')}</button
+							>
+						</div>
+					{/if}
+
+					{#if tab === 'research'}
+						{#if loading}
+							<p class="subtle">{t('picker.loading')}</p>
+						{:else if researchDocs.length === 0}
+							<p class="subtle">{t('picker.researchEmpty')}</p>
+						{:else}
+							<ul class="docs">
+								{#each researchDocs as doc (doc.id)}
+									<li>
+										<button type="button" class="doc" onclick={() => openDoc(doc.id)}>
+											{doc.originalName}
+										</button>
+										{#if openDocId === doc.id}
+											{#if figures.length === 0}
+												<p class="subtle">{t('research.noFigures')}</p>
+											{:else}
+												<ul class="grid">
+													{#each figures as fig (fig.id)}
+														<li>
+															<button type="button" onclick={() => useFigure(fig)} disabled={loading}>
+																<img
+																	src={fig.url}
+																	alt={t('research.figureAlt', { page: fig.page })}
+																	loading="lazy"
+																/>
+																<span>{t('research.page', { n: fig.page })}</span>
+															</button>
+														</li>
+													{/each}
+												</ul>
+											{/if}
+										{/if}
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					{:else}
-						<ul class="grid">
-							{#each assets as asset (asset.id)}
-								<li>
-									<button type="button" onclick={() => choose(asset.url, asset.originalName)}>
-										<img src={asset.url} alt={asset.originalName} loading="lazy" />
-										<span>{asset.originalName}</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
+						<button type="button" class="upload" onclick={() => fileInput?.click()} disabled={loading}>
+							{t('picker.upload')}
+						</button>
+						<input
+							bind:this={fileInput}
+							type="file"
+							accept="image/png,image/jpeg,image/gif,image/webp"
+							hidden
+							onchange={onUpload}
+						/>
+						<h3>{t('picker.reuse')}</h3>
+						{#if loading}
+							<p class="subtle">{t('picker.loading')}</p>
+						{:else if assets.length === 0}
+							<p class="subtle">{t('picker.empty')}</p>
+						{:else}
+							<ul class="grid">
+								{#each assets as asset (asset.id)}
+									<li>
+										<button type="button" onclick={() => choose(asset.url, asset.originalName)}>
+											<img src={asset.url} alt={asset.originalName} loading="lazy" />
+											<span>{asset.originalName}</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					{/if}
 				</div>
 			{/if}
@@ -289,6 +411,57 @@
 		color: var(--dk-ink);
 		cursor: pointer;
 		width: 100%;
+	}
+
+	.tabs {
+		display: flex;
+		gap: 0.35rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.tabs button {
+		font: inherit;
+		font-size: 0.82rem;
+		font-weight: 600;
+		padding: 0.35rem 0.7rem;
+		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 20%, transparent);
+		border-radius: 0.5rem;
+		background: transparent;
+		color: var(--dk-ink);
+		cursor: pointer;
+	}
+
+	.tabs button.active {
+		background: var(--dk-ink);
+		color: var(--dk-bg);
+		border-color: var(--dk-ink);
+	}
+
+	.docs {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.docs .doc {
+		font: inherit;
+		font-size: 0.85rem;
+		font-weight: 600;
+		width: 100%;
+		text-align: left;
+		padding: 0.4rem 0.6rem;
+		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
+		border-radius: 0.5rem;
+		background: transparent;
+		color: var(--dk-ink);
+		cursor: pointer;
+	}
+
+	.docs .grid {
+		margin-top: 0.4rem;
 	}
 
 	.grid {

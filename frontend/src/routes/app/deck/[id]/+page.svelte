@@ -20,6 +20,7 @@
 	backLabel={t('editor.backDecks')}
 	{presentHref}
 	aiEnabled={data.user.aiEnabled}
+	ownerDeckId={data.deck.id}
 	extra={shareButton}
 />
 

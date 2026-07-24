@@ -135,6 +135,35 @@ fn tools_list() -> Value {
                 },
             },
             {
+                "name": "list_research",
+                "description": "List the research documents you have uploaded to Deckoala (id, name, character count). Use these as source material for slides.",
+                "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+            },
+            {
+                "name": "list_research_figures",
+                "description": "List the figures (charts/images) extracted from one of your research PDFs, so they can illustrate slides.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "researchId": { "type": "string" } },
+                    "required": ["researchId"],
+                    "additionalProperties": false,
+                },
+            },
+            {
+                "name": "attach_figure",
+                "description": "Copy a research figure into a deck and return the Markdown to place it on a slide, e.g. ![alt](/assets/…). Both the deck and the figure must be yours.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "deckId": { "type": "string" },
+                        "figureId": { "type": "string" },
+                        "alt": { "type": "string" },
+                    },
+                    "required": ["deckId", "figureId"],
+                    "additionalProperties": false,
+                },
+            },
+            {
                 "name": "update_deck",
                 "description": "Replace a deck's title and/or Markdown. Call get_deck first and PRESERVE its YAML frontmatter — it carries the theme and any font overrides the owner set. The previous content is snapshotted as a revision first.",
                 "inputSchema": {
@@ -175,6 +204,9 @@ async fn tools_call(
         "get_deck" => get_deck(state, user_id, &args).await,
         "create_deck" => create_deck(state, user_id, &args).await,
         "update_deck" => update_deck(state, user_id, &args).await,
+        "list_research" => list_research(state, user_id).await,
+        "list_research_figures" => list_research_figures(state, user_id, &args).await,
+        "attach_figure" => attach_figure(state, user_id, &args).await,
         other => return Err((-32602, format!("unknown tool: {other}"))),
     };
 
@@ -300,6 +332,57 @@ async fn update_deck(state: &AppState, user_id: &str, args: &Value) -> Result<St
     .unwrap_or_default())
 }
 
+// --- research + figures (BRIEF-0014) ---------------------------------------
+
+async fn list_research(state: &AppState, user_id: &str) -> Result<String, String> {
+    let rows = crate::research::docs_data(state, user_id)
+        .await
+        .map_err(|_| "database error".to_owned())?;
+    let listed: Vec<Value> = rows
+        .into_iter()
+        .map(|d| json!({ "id": d.0, "name": d.1, "charCount": d.2 }))
+        .collect();
+    Ok(serde_json::to_string_pretty(&json!({ "research": listed })).unwrap_or_default())
+}
+
+async fn list_research_figures(
+    state: &AppState,
+    user_id: &str,
+    args: &Value,
+) -> Result<String, String> {
+    let doc_id = arg_str(args, "researchId").ok_or("researchId is required")?;
+    let rows = crate::research::figures_meta(state, user_id, &doc_id)
+        .await
+        .map_err(|_| "not found".to_owned())?;
+    let listed: Vec<Value> = rows
+        .into_iter()
+        .map(|f| json!({ "id": f.0, "page": f.1, "width": f.2, "height": f.3 }))
+        .collect();
+    Ok(serde_json::to_string_pretty(&json!({ "figures": listed })).unwrap_or_default())
+}
+
+async fn attach_figure(state: &AppState, user_id: &str, args: &Value) -> Result<String, String> {
+    let deck_id = arg_str(args, "deckId").ok_or("deckId is required")?;
+    let figure_id = arg_str(args, "figureId").ok_or("figureId is required")?;
+    if !allow_write(state, user_id).await {
+        return Err(RATE_LIMITED.to_owned());
+    }
+    let asset = crate::research::attach_figure_data(state, user_id, &deck_id, &figure_id)
+        .await
+        .map_err(|_| "not found".to_owned())?;
+    let alt = arg_str(args, "alt").unwrap_or_else(|| "figure".to_owned());
+    // Strip markdown-structural chars so the snippet can't break the syntax.
+    let alt: String = alt
+        .chars()
+        .filter(|c| !matches!(c, '[' | ']' | '(' | ')' | '\\' | '\r' | '\n'))
+        .collect();
+    Ok(serde_json::to_string_pretty(&json!({
+        "url": asset.url,
+        "markdown": format!("![{}]({})", alt.trim(), asset.url),
+    }))
+    .unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ensure_front_matter, initialize, tools_list};
@@ -332,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_exposes_the_four_deck_tools_and_no_delete() {
+    fn tools_list_exposes_the_deck_and_research_tools_and_no_delete() {
         let listed = tools_list();
         let names: Vec<&str> = listed["tools"]
             .as_array()
@@ -342,7 +425,15 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["list_decks", "get_deck", "create_deck", "update_deck"]
+            [
+                "list_decks",
+                "get_deck",
+                "create_deck",
+                "list_research",
+                "list_research_figures",
+                "attach_figure",
+                "update_deck",
+            ]
         );
         // Deleting decks over a long-lived token is deliberately not offered.
         assert!(!names.iter().any(|name| name.contains("delete")));

@@ -11,7 +11,7 @@
 	import 'katex/dist/katex.min.css';
 	import { renderDeck } from '$lib/marp';
 	import { reorderSlides, bodyStartOffset } from '$lib/slides';
-	import { api, ApiError, type EditorAdapter, type RevisionMeta } from '$lib/api';
+	import { api, ApiError, type EditorAdapter, type ResearchDoc, type RevisionMeta } from '$lib/api';
 	import { getPalette } from '$lib/palette.svelte';
 	import ThemeGallery from '$lib/components/ThemeGallery.svelte';
 	import CustomCssModal from '$lib/components/CustomCssModal.svelte';
@@ -68,7 +68,8 @@
 		onPresent,
 		banner,
 		extra,
-		aiEnabled = false
+		aiEnabled = false,
+		ownerDeckId
 	}: {
 		deck: { id: string; title: string; markdown: string; updatedAt: string };
 		adapter: EditorAdapter;
@@ -83,6 +84,10 @@
 		/** Owner route ONLY. Never set from /s/[token], so an anonymous
 		 * share-edit visitor can't spend the instance's AI budget. */
 		aiEnabled?: boolean;
+		/** Owner route only: enables the image picker's "From research" tab and
+		 * the AI dialog's research checklist (the library is per user, so these
+		 * are unavailable on anonymous share links). */
+		ownerDeckId?: string;
 	} = $props();
 
 	const back = $derived(backLabel ?? t('editor.backDecks'));
@@ -259,6 +264,26 @@
 	let aiBusy = $state(false);
 	let aiError = $state('');
 	let aiResult = $state('');
+	// Research library (BRIEF-0014): pick which uploaded papers to source from.
+	let researchDocs = $state<ResearchDoc[]>([]);
+	let researchPicked = $state<string[]>([]);
+
+	// Load the user's library when the AI dialog opens (owner route only — the
+	// library is per user, and the AI button is not shown on share links).
+	$effect(() => {
+		// Owner route only — a share guest has no library, so don't even ask.
+		if (!aiOpen || !ownerDeckId) return;
+		api.research
+			.list()
+			.then((docs) => (researchDocs = docs))
+			.catch(() => (researchDocs = []));
+	});
+
+	function toggleResearch(id: string) {
+		researchPicked = researchPicked.includes(id)
+			? researchPicked.filter((r) => r !== id)
+			: [...researchPicked, id];
+	}
 
 	/** The model returns a whole deck; when appending we drop its frontmatter so
 	 * the existing deck keeps exactly one. */
@@ -275,7 +300,8 @@
 		try {
 			const res = await api.ai.generate(
 				aiPrompt.trim(),
-				aiUseContext ? currentMarkdown : undefined
+				aiUseContext ? currentMarkdown : undefined,
+				researchPicked
 			);
 			aiResult = res.markdown;
 		} catch (e) {
@@ -300,6 +326,9 @@
 		aiPrompt = '';
 		aiResult = '';
 		aiError = '';
+		// Clear the picks so a later generate can't silently source a paper the
+		// user has since removed (or forgot was selected).
+		researchPicked = [];
 	}
 
 	let errorMsg = $state('');
@@ -1008,6 +1037,7 @@
 <ImagePicker
 	open={imagePickerOpen}
 	{adapter}
+	{ownerDeckId}
 	onInsert={insertAtCursor}
 	onClose={() => (imagePickerOpen = false)}
 />
@@ -1035,6 +1065,32 @@
 			<input type="checkbox" bind:checked={aiUseContext} />
 			{t('ai.useContext')}
 		</label>
+
+		<!-- Source research (BRIEF-0014): slides are built from the selected papers. -->
+		<h3>{t('ai.researchHeading')}</h3>
+		{#if researchDocs.length === 0}
+			<p class="ai-hint">
+				{t('ai.researchEmpty')}
+				<a href="/app/research">{t('nav.research')}</a>
+			</p>
+		{:else}
+			<p class="ai-hint">{t('ai.researchHint')}</p>
+			<ul class="ai-research">
+				{#each researchDocs as doc (doc.id)}
+					<li>
+						<label>
+							<input
+								type="checkbox"
+								checked={researchPicked.includes(doc.id)}
+								onchange={() => toggleResearch(doc.id)}
+							/>
+							{doc.originalName}
+						</label>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
 		<div class="ai-actions">
 			<button class="button" onclick={runGenerate} disabled={aiBusy || !aiPrompt.trim()}>
 				{aiBusy ? t('ai.generating') : t('ai.generate')}
@@ -1113,6 +1169,30 @@
 		align-items: center;
 		gap: 0.45rem;
 		font-size: 0.85rem;
+	}
+
+	.ai-hint {
+		margin: 0.15rem 0 0.35rem;
+		font-size: 0.8rem;
+		opacity: 0.7;
+	}
+
+	.ai-research {
+		list-style: none;
+		margin: 0 0 0.5rem;
+		padding: 0.35rem 0.5rem;
+		max-height: 8rem;
+		overflow-y: auto;
+		border: 1.5px solid color-mix(in srgb, var(--dk-ink) 15%, transparent);
+		border-radius: 0.5rem;
+	}
+
+	.ai-research label {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		font-size: 0.85rem;
+		padding: 0.15rem 0;
 	}
 
 	.ai-actions {

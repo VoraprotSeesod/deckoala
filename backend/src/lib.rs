@@ -5,6 +5,7 @@ pub mod decks;
 pub mod export;
 pub mod fonts;
 pub mod mcp;
+pub mod research;
 pub mod settings;
 pub mod shares;
 pub mod tokens;
@@ -326,6 +327,7 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
     // The asset serve route lives outside /api (reserved prefix) but still
     // needs the session to resolve AuthUser — give it its own clone.
     let assets_session_layer = session_layer.clone();
+    let research_session_layer = session_layer.clone();
 
     let api = Router::new()
         .route("/health", get(health))
@@ -356,6 +358,23 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
             post(assets::upload)
                 .get(assets::list)
                 .layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        // Research library (BRIEF-0014): per-user source documents + figures.
+        .route(
+            "/research",
+            post(research::upload)
+                .get(research::list)
+                .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
+        .route("/research/{id}/preview", get(research::preview))
+        .route("/research/{id}/figures", get(research::figures))
+        .route(
+            "/research/{id}",
+            axum::routing::delete(research::delete_doc),
+        )
+        .route(
+            "/decks/{id}/figures/{figure_id}",
+            post(research::attach_figure),
         )
         .route("/decks/{id}/revisions", get(decks::revisions_list))
         .route("/decks/{id}/revisions/{rev_id}", get(decks::revision_get))
@@ -421,6 +440,16 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
         .layer(assets_session_layer)
         .with_state(state.clone());
 
+    // Research figures (reserved `/research/` prefix), owner-scoped like
+    // /assets — only the uploading user may view their own paper's figures.
+    let research_router = Router::new()
+        .route(
+            "/research/{owner}/{doc_id}/{filename}",
+            get(research::serve_figure),
+        )
+        .layer(research_session_layer)
+        .with_state(state.clone());
+
     // Installed fonts (reserved `/fonts/` prefix). Public + session-less so
     // the PDF-export Chromium (no session) can load them.
     let fonts_router = Router::new()
@@ -467,6 +496,7 @@ pub async fn app(state: AppState, static_dir: &Path) -> Result<Router, Box<dyn s
     Ok(Router::new()
         .nest("/api", api)
         .merge(assets_router)
+        .merge(research_router)
         .merge(fonts_router)
         .merge(mcp_router)
         .merge(well_known)
