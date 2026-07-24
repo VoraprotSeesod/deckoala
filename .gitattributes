@@ -1,0 +1,15 @@
+# Binary assets must never go through line-ending conversion. Git guessed the
+# research test fixture (backend/tests/fixtures/paper.pdf) was text and warned
+# it would rewrite its line endings on checkout, which corrupts the file for
+# anyone cloning on Windows.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
