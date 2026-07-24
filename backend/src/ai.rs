@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::decks::AuthUser;
 use crate::fonts::read_capped;
-use crate::settings::{self, PROVIDER_ANTHROPIC};
+use crate::settings::{self, PROVIDER_ANTHROPIC, PROVIDER_GEMINI};
 use crate::{json_error, AppState};
 
 const MAX_PROMPT_BYTES: usize = 4 * 1024;
@@ -46,6 +46,28 @@ fn join_url(base: &str, path: &str) -> String {
     let base = base.trim_end_matches('/');
     let base = base.strip_suffix("/v1").unwrap_or(base);
     format!("{base}{path}")
+}
+
+/// Gemini's generateContent URL: `{base}/v1beta/models/{model}:generateContent`.
+/// The API version segment is `v1beta` (not `/v1`), and the `:generateContent`
+/// action must survive, so this does NOT reuse `join_url`. The key is never put
+/// here — it goes in the `x-goog-api-key` header.
+fn gemini_url(base: &str, model: &str) -> String {
+    let base = base.trim_end_matches('/');
+    format!("{base}/v1beta/models/{model}:generateContent")
+}
+
+/// Concatenate the text parts of Gemini's first candidate.
+fn gemini_text(value: &serde_json::Value) -> String {
+    value["candidates"][0]["content"]["parts"]
+        .as_array()
+        .map(|parts| {
+            parts
+                .iter()
+                .filter_map(|part| part["text"].as_str())
+                .collect::<String>()
+        })
+        .unwrap_or_default()
 }
 
 /// Models often wrap output in a fenced block despite instructions. Only strip
@@ -142,6 +164,7 @@ pub async fn generate(
 
     let key = cfg.api_key.clone().unwrap_or_default();
     let anthropic = cfg.provider == PROVIDER_ANTHROPIC;
+    let gemini = cfg.provider == PROVIDER_GEMINI;
     let (url, payload) = if anthropic {
         (
             join_url(&cfg.base_url, "/v1/messages"),
@@ -150,6 +173,15 @@ pub async fn generate(
                 "max_tokens": MAX_TOKENS,
                 "system": SYSTEM_PROMPT,
                 "messages": [{ "role": "user", "content": user_content }],
+            }),
+        )
+    } else if gemini {
+        (
+            gemini_url(&cfg.base_url, &cfg.model),
+            serde_json::json!({
+                "system_instruction": { "parts": [{ "text": SYSTEM_PROMPT }] },
+                "contents": [{ "role": "user", "parts": [{ "text": user_content }] }],
+                "generationConfig": { "maxOutputTokens": MAX_TOKENS },
             }),
         )
     } else {
@@ -202,6 +234,10 @@ pub async fn generate(
         request
             .header("x-api-key", &key)
             .header("anthropic-version", ANTHROPIC_VERSION)
+    } else if gemini {
+        // The key travels in a header, NEVER the ?key= query param (keys must
+        // never appear in a URL — privacy + our key-hygiene posture).
+        request.header("x-goog-api-key", &key)
     } else {
         request.header(header::AUTHORIZATION, format!("Bearer {key}"))
     };
@@ -229,7 +265,7 @@ pub async fn generate(
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
         return json_error(StatusCode::BAD_GATEWAY, "unreadable AI response");
     };
-    let text = if anthropic {
+    let text: String = if anthropic {
         value["content"]
             .as_array()
             .and_then(|parts| {
@@ -242,13 +278,17 @@ pub async fn generate(
                 })
             })
             .unwrap_or_default()
+            .to_owned()
+    } else if gemini {
+        gemini_text(&value)
     } else {
         value["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or_default()
+            .to_owned()
     };
 
-    let markdown = strip_code_fence(text);
+    let markdown = strip_code_fence(&text);
     if markdown.is_empty() {
         return json_error(StatusCode::BAD_GATEWAY, "the AI returned no content");
     }
@@ -257,7 +297,36 @@ pub async fn generate(
 
 #[cfg(test)]
 mod tests {
-    use super::{join_url, strip_code_fence};
+    use super::{gemini_text, gemini_url, join_url, strip_code_fence};
+
+    #[test]
+    fn gemini_url_targets_generatecontent_and_never_carries_the_key() {
+        let url = gemini_url(
+            "https://generativelanguage.googleapis.com",
+            "gemini-2.0-flash",
+        );
+        assert_eq!(
+            url,
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+        // The API key must never appear in the URL.
+        assert!(!url.contains("key="));
+        // A trailing slash on the base is tolerated, and :generateContent survives.
+        assert_eq!(
+            gemini_url("https://host/", "m"),
+            "https://host/v1beta/models/m:generateContent"
+        );
+    }
+
+    #[test]
+    fn gemini_text_concatenates_candidate_parts() {
+        let value = serde_json::json!({
+            "candidates": [{ "content": { "parts": [{ "text": "# Hi\n" }, { "text": "## More" }] } }]
+        });
+        assert_eq!(gemini_text(&value), "# Hi\n## More");
+        // Missing/empty shape → empty string, which the caller turns into a 502.
+        assert_eq!(gemini_text(&serde_json::json!({})), "");
+    }
 
     #[test]
     fn join_url_never_doubles_the_version_segment() {

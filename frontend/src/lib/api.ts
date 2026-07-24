@@ -18,7 +18,7 @@ export type Me = User & {
 	aiEnabled: boolean;
 };
 
-export type AiProvider = 'anthropic' | 'openai';
+export type AiProvider = 'anthropic' | 'openai' | 'gemini';
 
 export type AiSettings = {
 	enabled: boolean;

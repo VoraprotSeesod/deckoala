@@ -67,6 +67,8 @@ open questions — never silent assumptions.
 | `ลุย BRIEF-0009c` | `docs/briefs/BRIEF-0009c-themes-docs-images.md` | Theme gallery + per-deck custom CSS + safe frontmatter writer |
 | `ลุย BRIEF-0009d` | `docs/briefs/BRIEF-0009d-slide-guide-images.md` | In-app slide guide (docs) + easier image insertion (picker + reuse) |
 | `ลุย BRIEF-0012` | `docs/briefs/BRIEF-0012-visual-editor.md` | Visual editor phase 2: formatting toolbar + block inserter |
+| `ลุย BRIEF-0013` | `docs/briefs/BRIEF-0013-gemini-provider.md` | Gemini as a third AI provider (admin-configured LLM) |
+| `ลุย BRIEF-0014` | `docs/briefs/BRIEF-0014-research-library.md` | Research library (PDF/text) → server-extracted AI source context |
 
 > If the user says just "ลุย" with no task, build the next unchecked brief. Full roadmap: `docs/design/ARCHITECTURE.md` §8.
 

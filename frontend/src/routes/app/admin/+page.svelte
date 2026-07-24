@@ -22,6 +22,21 @@
 	let apiKey = $state(''); // always blank — the server never sends the stored key
 	let removeApiKey = $state(false);
 
+	const baseUrlHint = $derived(
+		provider === 'gemini'
+			? 'https://generativelanguage.googleapis.com'
+			: provider === 'openai'
+				? 'https://api.openai.com'
+				: 'https://api.anthropic.com'
+	);
+	const modelHint = $derived(
+		provider === 'gemini'
+			? 'gemini-2.0-flash'
+			: provider === 'openai'
+				? 'gpt-4o'
+				: 'claude-sonnet-4-6'
+	);
+
 	let busy = $state(false);
 	let errorMsg = $state('');
 	let okMsg = $state('');
@@ -136,17 +151,18 @@
 				<select bind:value={provider}>
 					<option value="anthropic">{t('admin.providerAnthropic')}</option>
 					<option value="openai">{t('admin.providerOpenai')}</option>
+					<option value="gemini">{t('admin.providerGemini')}</option>
 				</select>
 			</label>
 
 			<div class="row">
 				<label>
 					{t('admin.baseUrl')}
-					<input bind:value={baseUrl} placeholder="https://api.anthropic.com" />
+					<input bind:value={baseUrl} placeholder={baseUrlHint} />
 				</label>
 				<label>
 					{t('admin.model')}
-					<input bind:value={model} placeholder="claude-sonnet-4-6" />
+					<input bind:value={model} placeholder={modelHint} />
 				</label>
 			</div>
 

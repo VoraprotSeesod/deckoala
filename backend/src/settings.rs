@@ -24,6 +24,7 @@ const AI_API_KEY: &str = "ai_api_key";
 
 pub(crate) const PROVIDER_ANTHROPIC: &str = "anthropic";
 pub(crate) const PROVIDER_OPENAI: &str = "openai";
+pub(crate) const PROVIDER_GEMINI: &str = "gemini";
 
 pub(crate) async fn get(db: &SqlitePool, key: &str) -> Option<String> {
     sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?1")
@@ -193,10 +194,11 @@ pub async fn put_settings(
     Json(body): Json<UpdateSettings>,
 ) -> Response {
     let provider = body.provider.trim().to_owned();
-    if provider != PROVIDER_ANTHROPIC && provider != PROVIDER_OPENAI {
+    if provider != PROVIDER_ANTHROPIC && provider != PROVIDER_OPENAI && provider != PROVIDER_GEMINI
+    {
         return json_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "provider must be 'anthropic' or 'openai'",
+            "provider must be 'anthropic', 'openai' or 'gemini'",
         );
     }
     let base_url = body.base_url.trim().trim_end_matches('/').to_owned();
